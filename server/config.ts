@@ -50,7 +50,7 @@ export const config = {
     numCtx: num('OLLAMA_NUM_CTX', 4096),
   },
   gemini: { apiKey: env('GEMINI_API_KEY'), model: env('GEMINI_MODEL', 'gemini-2.5-flash') },
-  groq: { apiKey: env('GROQ_API_KEY'), model: env('GROQ_MODEL', 'llama-3.3-70b-versatile') },
+  groq: { apiKey: env('GROQ_API_KEY'), model: env('GROQ_MODEL', 'openai/gpt-oss-120b') },
   openrouter: { apiKey: env('OPENROUTER_API_KEY'), model: env('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct:free') },
   anthropic: { apiKey: env('ANTHROPIC_API_KEY'), model: env('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001') },
 };

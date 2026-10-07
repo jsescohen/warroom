@@ -49,12 +49,16 @@ class OpenAICompatProvider implements LLMProvider {
     private extraHeaders: Record<string, string> = {},
   ) {}
   async complete(r: CompletionRequest) {
+    // reasoning models (gpt-oss, qwen3) think before answering: keep the thinking short and leave
+    // room for it, or the reply budget is spent before any JSON is written
+    const reasoning = /gpt-oss|qwen3/i.test(this.model);
     const data = await postJson(this.url, {
       model: this.model,
       messages: [{ role: 'system', content: r.system }, ...r.messages],
       temperature: r.temperature,
-      max_tokens: r.maxTokens,
+      max_tokens: reasoning ? Math.max(r.maxTokens * 4, 1024) : r.maxTokens,
       response_format: r.json && this.nativeJson ? { type: 'json_object' } : undefined,
+      ...(reasoning && this.id === 'groq' ? { reasoning_effort: /qwen3/i.test(this.model) ? 'none' : 'low', include_reasoning: false } : {}),
     }, { authorization: `Bearer ${this.apiKey}`, ...this.extraHeaders }, r.signal);
     return String(data?.choices?.[0]?.message?.content ?? '');
   }
