@@ -54,8 +54,8 @@ const NATURAL_BORDERS = (args['natural-borders'] ?? (TRIBES ? 'true' : 'false'))
 
 // ---- tuning -----------------------------------------------------------------------------------
 const WORLD_W = 4096;
-const LAT_TOP = 84;
-const LAT_BOTTOM = -58;
+const LAT_TOP = Number(args['lat-top'] ?? 84);
+const LAT_BOTTOM = Number(args['lat-bottom'] ?? -58);
 const DENSITY = Number(args.density ?? 0.27); // provinces = DENSITY * area^EXP
 const EXP = 0.45;
 const MAX_PROVINCES_PER_POLITY = Number(args['max-per-polity'] ?? 90);

@@ -73,6 +73,13 @@ export const ERA_RESOURCES: Record<EraId, ResourceDef[]> = {
     { id: 'rare', name: 'Rare earths', color: '#9b6bc4', value: 2, regions: RARE },
     { id: 'food', name: 'Food', color: '#d8c15a', value: 1, regions: FOOD },
   ],
+  // Pangea: resources by each country's present-day lands (scripts/pangea.ts keeps those positions)
+  pangea: [
+    { id: 'horses', name: 'Horses', color: '#b07a45', units: ['cavalry'], value: 1, regions: [...HORSES, [-110, -95, 30, 50, 0.3], [-65, -55, -40, -30, 0.3]] },
+    { id: 'iron', name: 'Iron', color: '#7d8590', units: ['swordsmen'], value: 1, regions: [...IRON_OLD, ...STEEL.map(([a, b, c, d, e]): R => [a, b, c, d, e * 0.8])] },
+    { id: 'grain', name: 'Grain', color: '#d8c15a', value: 2, regions: [...GRAIN_OLD, ...FOOD] },
+    { id: 'spices', name: 'Spices', color: '#c0553a', value: 3, regions: SPICES },
+  ],
   usa: [
     { id: 'oil', name: 'Oil', color: '#1f1f1f', units: ['armor', 'air'], value: 2, regions: US_OIL },
     { id: 'electronics', name: 'Electronics', color: '#3f8fd2', units: ['drones'], value: 3, regions: US_TECH },

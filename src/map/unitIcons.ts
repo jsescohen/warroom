@@ -9,7 +9,7 @@ export type UnitSymbol = 'infantry' | 'shield' | 'armor' | 'artillery' | 'cavalr
 
 const FAMILY: Record<string, UnitSymbol> = {
   infantry: 'infantry', militia: 'infantry', guard: 'infantry', arquebusiers: 'infantry',
-  spearmen: 'shield', legion: 'shield', pikemen: 'shield', auxilia: 'shield', comitatenses: 'shield', foederati: 'shield',
+  spearmen: 'shield', swordsmen: 'shield', legion: 'shield', pikemen: 'shield', auxilia: 'shield', comitatenses: 'shield', foederati: 'shield',
   armor: 'armor', tanks: 'armor', mech: 'armor',
   artillery: 'artillery', siege: 'artillery', cannon: 'artillery',
   archers: 'archer',

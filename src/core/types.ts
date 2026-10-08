@@ -11,7 +11,7 @@ export type NationId = string;
 export type ProvinceId = string;
 export type ArmyId = string;
 
-export type EraId = 'bronze' | 'rome-rise' | 'rome-fall' | 'renaissance' | 'ww1' | 'ww2' | 'modern' | 'usa';
+export type EraId = 'bronze' | 'rome-rise' | 'rome-fall' | 'renaissance' | 'ww1' | 'ww2' | 'modern' | 'usa' | 'pangea';
 
 /** Look-and-feel family used by the UI theme for each era. */
 export type ThemeId = 'parchment' | 'marble' | 'ornate' | 'sepia' | 'tactical';

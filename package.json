@@ -17,8 +17,9 @@
     "map:renaissance": "tsx scripts/build-map.ts --in data-src/world_1500.geojson --out public/maps/world_1500.json --land data-src/land.geojson --tribes true",
     "map:ww1": "tsx scripts/build-map.ts --in data-src/world_1914.geojson --out public/maps/world_1914.json --land data-src/land.geojson",
     "map:modern": "tsx scripts/build-map.ts --in data-src/world_2010.geojson --out public/maps/world_2010.json --land data-src/land.geojson",
+    "map:pangea": "tsx scripts/pangea.ts prep && tsx scripts/build-map.ts --in data-src/pangea.geojson --places data-src/pangea_places.geojson --out public/maps/pangea.json --lat-top 59 --lat-bottom -60 --natural-borders true && tsx scripts/pangea.ts post public/maps/pangea.json",
     "map:usa": "tsx scripts/build-map.ts --in data-src/us_states.geojson --out public/maps/usa.json --projection albersUsa --name-field name --subject-field name --short-field name --density 0.03 --max-per-polity 20",
-    "map:all": "npm run map:bronze && npm run map:rome-rise && npm run map:rome-fall && npm run map:renaissance && npm run map:ww1 && npm run map:ww2 && npm run map:modern && npm run map:usa",
+    "map:all": "npm run map:bronze && npm run map:rome-rise && npm run map:rome-fall && npm run map:renaissance && npm run map:ww1 && npm run map:ww2 && npm run map:modern && npm run map:usa && npm run map:pangea",
     "start": "node --env-file-if-exists=.env --import tsx server/index.ts --production",
     "map:menu": "tsx scripts/build-menu-map.ts",
     "icons": "tsx scripts/build-icons.ts"
