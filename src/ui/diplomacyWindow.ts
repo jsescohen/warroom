@@ -119,7 +119,8 @@ export class DiplomacyWindow {
     const me = s.playerNation;
     if (!me) return 0;
     let n = 0;
-    for (const other of Object.keys(s.nations)) n += this.unread(s, other);
+    // only nations still in the list: a conquered nation's old letters can no longer be opened
+    for (const other of Object.keys(s.nations)) if (s.nations[other].alive) n += this.unread(s, other);
     return n;
   }
 

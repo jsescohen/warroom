@@ -7,7 +7,7 @@
     "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"tsx watch --env-file-if-exists=.env server/index.ts\"",
     "dev:web": "vite",
     "dev:server": "tsx watch --env-file-if-exists=.env server/index.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && tsx scripts/compress-maps.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "map:ww2": "tsx scripts/build-map.ts --in data-src/world_1938.geojson --out public/maps/world_1938.json --land data-src/land.geojson",

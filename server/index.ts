@@ -1,6 +1,7 @@
 import compression from 'compression';
 import express from 'express';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DevVerifier, SupabaseVerifier } from './accounts/auth';
 import { betaRouter } from './accounts/betaRoutes';
@@ -103,13 +104,40 @@ app.post('/api/ai/task', async (req, res) => {
 const dist = fileURLToPath(new URL('../dist', import.meta.url));
 if (config.production && existsSync(dist)) {
   app.use('/maps', requireAccess);
+  // maps were compressed at build time (scripts/compress-maps.ts): send the ready-made file
+  app.use('/maps', (req, res, next) => {
+    if (req.method !== 'GET' || !req.path.endsWith('.json') || req.path.includes('..')) return next();
+    const file = path.join(dist, 'maps', req.path);
+    const accept = String(req.headers['accept-encoding'] ?? '');
+    const enc = /br/.test(accept) && existsSync(`${file}.br`) ? 'br' : /gzip/.test(accept) && existsSync(`${file}.gz`) ? 'gzip' : null;
+    if (!enc || !existsSync(file)) return next();
+    const packed = `${file}.${enc === 'br' ? 'br' : 'gz'}`;
+    const stat = statSync(packed);
+    const etag = `"${enc}-${stat.size}-${Math.round(stat.mtimeMs)}"`;
+    res.setHeader('Vary', 'Accept-Encoding');
+    res.setHeader('Cache-Control', 'private, no-cache');
+    res.setHeader('ETag', etag);
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Encoding', enc);
+    res.setHeader('Content-Length', String(stat.size));
+    // the loading bar needs the real size, which a compressed response hides
+    res.setHeader('x-raw-length', String(statSync(file).size));
+    createReadStream(packed).pipe(res);
+  });
   app.use(express.static(dist, {
     index: 'index.html',
-    maxAge: '1h',
-    // the loading bar needs the real size, which a compressed response hides
-    setHeaders: (res, file, stat) => { if (file.endsWith('.json')) res.setHeader('x-raw-length', String(stat.size)); },
+    // the page and the service worker are checked on every visit (so updates arrive at once);
+    // game code under /assets/ is named by its content and never changes
+    setHeaders: (res, file, stat) => {
+      if (file.endsWith('.json')) res.setHeader('x-raw-length', String(stat.size));
+      if (/[\/]assets[\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      else if (file.endsWith('.html') || file.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache');
+      else if (file.endsWith('.json')) res.setHeader('Cache-Control', 'private, no-cache');
+      else res.setHeader('Cache-Control', 'public, max-age=86400');
+    },
   }));
-  app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: dist }));
+  app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: dist, headers: { 'Cache-Control': 'no-cache' } }));
 }
 
 app.listen(config.port, () => {

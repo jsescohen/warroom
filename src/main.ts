@@ -56,8 +56,16 @@ async function boot() {
   onSettingsChange((s) => applyDisplaySettings(s));
   if (import.meta.env.DEV) Object.assign(window, { audio });
   const root = document.getElementById('app')!;
+  // installed on a phone's home screen: keep the game's files on the device (see public/sw.js)
+  if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  // the free server sleeps when nobody plays: say so instead of showing a blank screen
+  const waking = h('div', { class: 'loading' }, h('div', null, h('h2', null, 'Waking up the server…'),
+    h('p', { class: 'dim' }, 'When nobody has played for a while this takes up to a minute. It is quick after that.')));
+  const wakeTimer = setTimeout(() => { if (!root.childElementCount) root.append(waking); }, 2500);
   // closed beta: nothing else loads until this browser has entered a tester code
   await ensureAccess(root);
+  clearTimeout(wakeTimer);
+  waking.remove();
   const q = new URLSearchParams(location.search);
 
   // a click anywhere on a button gives soft UI feedback (if enabled)

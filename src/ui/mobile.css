@@ -95,3 +95,8 @@ button, .btn, a, input, select { touch-action: manipulation; }
 
 .mobile-bar { display: none; }
 @media (max-width: 720px) { .mobile-bar { display: flex; } }
+
+/* iPhone Safari zooms into any text field under 16px when it gets focus: keep them at 16px */
+@media (pointer: coarse) {
+  input, textarea, select, .diplo-input, .diplo-search { font-size: 16px !important; }
+}

@@ -22,7 +22,20 @@ export class GameSession {
     if (this.slotId) void getSave(this.slotId).then((r) => { this.slotName = r?.name ?? null; });
     store.subscribe((s, prev) => {
       if (s.clock.hours !== prev.clock.hours) this.maybeAutosave(s);
+      // reading a letter is kept at once, so it does not show up as unread again after a reload
+      if (s.diplomacy.read !== prev.diplomacy.read) this.autosaveSoon();
     });
+    // phones: switching away from the app (or closing it) saves first
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && getSettings().autosave !== 'off' && this.dirty) void this.autosave();
+    });
+  }
+
+  private soonTimer = 0;
+  private autosaveSoon() {
+    if (getSettings().autosave === 'off') return;
+    clearTimeout(this.soonTimer);
+    this.soonTimer = window.setTimeout(() => void this.autosave(), 1500);
   }
 
   get dirty() {
