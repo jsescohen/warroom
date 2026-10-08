@@ -100,3 +100,19 @@ button, .btn, a, input, select { touch-action: manipulation; }
 @media (pointer: coarse) {
   input, textarea, select, .diplo-input, .diplo-search { font-size: 16px !important; }
 }
+
+/*
+ * Notches, the Dynamic Island and rounded corners: keep the game inside the safe area. (With the
+ * "black" status bar the home-screen app already starts below the island; this also covers a
+ * phone held sideways and browsers that draw under the bars.)
+ */
+#app {
+  top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+}
+.modal-backdrop, .diplo-backdrop {
+  padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
+}
+@media (max-width: 720px) {
+  :root { --hud-top: 98px; }
+  .topbar { top: 6px; }
+}
