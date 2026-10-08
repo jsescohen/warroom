@@ -20,7 +20,8 @@
     "map:usa": "tsx scripts/build-map.ts --in data-src/us_states.geojson --out public/maps/usa.json --projection albersUsa --name-field name --subject-field name --short-field name --density 0.03 --max-per-polity 20",
     "map:all": "npm run map:bronze && npm run map:rome-rise && npm run map:rome-fall && npm run map:renaissance && npm run map:ww1 && npm run map:ww2 && npm run map:modern && npm run map:usa",
     "start": "node --env-file-if-exists=.env --import tsx server/index.ts --production",
-    "map:menu": "tsx scripts/build-menu-map.ts"
+    "map:menu": "tsx scripts/build-menu-map.ts",
+    "icons": "tsx scripts/build-icons.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
@@ -32,6 +33,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-geo": "^3.1.1",
     "@types/express": "^5.0.6",

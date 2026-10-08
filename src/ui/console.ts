@@ -13,7 +13,7 @@ export function consoleScreen(opts: { page: string; title: string; right?: Child
   return h('div', { class: `cx-screen cx-on-${opts.page}` },
     h('div', { class: 'cx-map', 'aria-hidden': 'true' }),
     h('header', { class: 'cx-top' },
-      h('a', { class: 'cx-brand', href: '/', title: 'Main menu' }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }), 'Warroom', h('span', { class: 'cx-tag' }, 'Beta')),
+      h('a', { class: 'cx-brand', href: '/', title: 'Main menu' }, h('img', { class: 'cx-mark', src: '/logo.svg', alt: '' }), 'Warroom', h('span', { class: 'cx-tag' }, 'Beta')),
       opts.right ?? null,
     ),
     ...content,
