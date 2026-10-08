@@ -17,7 +17,7 @@ export function sideOf(state: GameState, a: NationId, b: NationId): 'enemies' | 
 }
 
 export const treatyName = (t: Treaty['type']) =>
-  ({ alliance: 'alliance', 'non-aggression': 'non-aggression pact', ceasefire: 'ceasefire', peace: 'peace treaty' })[t];
+  ({ alliance: 'alliance', 'non-aggression': 'non-aggression pact', ceasefire: 'ceasefire', peace: 'peace treaty', trade: 'trade agreement' })[t];
 
 /**
  * `nation` leaves a treaty. If it was a promise to another party (alliance, pact, ceasefire, peace),

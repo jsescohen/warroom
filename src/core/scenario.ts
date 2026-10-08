@@ -27,6 +27,20 @@ export interface UnitTypeDef {
   strike?: StrikeDef;
 }
 
+/** A natural resource of an era (see data/resources.ts). */
+export interface ResourceDef {
+  id: string;
+  name: string;
+  /** Map colour in the resources map mode. */
+  color: string;
+  /** Unit types that need it: without it they cost half as much again (or, with stockpiles, cannot be supplied). */
+  units?: string[];
+  /** Money a province holding it adds each month. */
+  value: number;
+  /** [lonMin, lonMax, latMin, latMax, chance]: where it is found. */
+  regions: [number, number, number, number, number][];
+}
+
 export interface StrikeDef {
   kind: 'air' | 'missile';
   /** Map units from the fleet's position (about 6.7 km each). */

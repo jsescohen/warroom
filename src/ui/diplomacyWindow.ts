@@ -1,6 +1,7 @@
 import { leaderOf } from '../ai/diplomacyPrompt';
 import type { Action } from '../core/actions';
-import { AGREEMENT_LABEL, borderProvinces, describeTerms, validateTerms } from '../core/diplomacy';
+import { AGREEMENT_LABEL, borderProvinces, describeTerms, MAX_TRADE_GOLD, validateTerms } from '../core/diplomacy';
+import { producedBy } from '../core/economy';
 import { allied, atWar, getRelation } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
@@ -29,6 +30,7 @@ const COMPOSE_OPTIONS: [ComposeType, string][] = [
   ['peace', 'Propose peace'],
   ['territory', 'Propose territory exchange'],
   ['joint-war', 'Propose joint war'],
+  ['trade', 'Propose trade agreement'],
   ['demand', 'Issue ultimatum (demand land)'],
 ];
 
@@ -52,6 +54,8 @@ export class DiplomacyWindow {
   private pickGive = new Set<string>();
   private pickTake = new Set<string>();
   private pickTarget = '';
+  /** Trade: resource you supply, resource you get, money you pay each month (negative: you are paid). */
+  private pickTrade = { sell: '', buy: '', gold: 0 };
   private waitStart = 0;
 
   constructor(private store: GameStore, private scenario: ScenarioDef, private diplomat: Diplomat, private hooks: DiplomacyHooks) {
@@ -72,7 +76,7 @@ export class DiplomacyWindow {
       e.stopPropagation(); // keep game shortcuts (space, 1-3, N) out of the text box
     });
     this.search.addEventListener('input', () => this.renderList());
-    this.composeType.addEventListener('change', () => { this.pickGive.clear(); this.pickTake.clear(); this.pickTarget = ''; this.renderExtra(); });
+    this.composeType.addEventListener('change', () => { this.pickGive.clear(); this.pickTake.clear(); this.pickTarget = ''; this.pickTrade = { sell: '', buy: '', gold: 0 }; this.renderExtra(); });
     this.sendBtn.addEventListener('click', () => void this.send());
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.send(); }
@@ -300,6 +304,20 @@ export class DiplomacyWindow {
       sel.value = this.pickTarget;
       sel.addEventListener('change', () => { this.pickTarget = sel.value; });
       fill(this.composeExtra, sel);
+    } else if (type === 'trade') {
+      const res = (n2: string) => [...producedBy(s, world, n2).keys()].sort();
+      const pick = (label: string, opts: string[], key: 'sell' | 'buy') => {
+        const sel = h('select', { class: 'diplo-select', 'aria-label': label }, h('option', { value: '' }, `${label}: nothing`),
+          ...opts.map((r) => h('option', { value: r }, `${label}: ${world.resources[r]?.name ?? r}`)));
+        sel.value = this.pickTrade[key];
+        sel.addEventListener('change', () => { this.pickTrade[key] = sel.value; });
+        return sel;
+      };
+      const gold = h('input', { class: 'diplo-gold', type: 'number', min: String(-MAX_TRADE_GOLD), max: String(MAX_TRADE_GOLD), step: '1', value: String(this.pickTrade.gold),
+        title: 'Money you pay them each month (a negative number: they pay you)' }) as HTMLInputElement;
+      gold.addEventListener('input', () => { this.pickTrade.gold = Math.round(Number(gold.value) || 0); });
+      fill(this.composeExtra, pick('You supply', res(me), 'sell'), pick('You get', res(n), 'buy'),
+        h('label', { class: 'dim small diplo-gold-label' }, 'You pay / month ', gold));
     } else fill(this.composeExtra);
   }
 
@@ -317,6 +335,11 @@ export class DiplomacyWindow {
       if (type === 'territory' || type === 'peace') { terms.give = [...this.pickGive]; terms.take = [...this.pickTake]; }
       if (type === 'demand') terms.take = [...this.pickTake];
       if (type === 'joint-war') terms.target = this.pickTarget;
+      if (type === 'trade') {
+        if (this.pickTrade.sell) terms.sell = this.pickTrade.sell;
+        if (this.pickTrade.buy) terms.buy = this.pickTrade.buy;
+        terms.gold = this.pickTrade.gold;
+      }
       const err = validateTerms(s, terms);
       if (err) return this.hooks.toast(err, 'alert');
       const ok = await this.act({ type: 'propose', terms });

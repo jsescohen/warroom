@@ -1,4 +1,5 @@
 import type { ProvinceMeta, ScenarioDef } from './scenario';
+import { initEconomy } from './economy';
 import { deployStartingArmies } from './military';
 import { zoneOf } from './regions';
 import { hoursUntil } from './time';
@@ -128,7 +129,7 @@ export function createInitialState(scenario: ScenarioDef, mapId: string, provinc
     rules: { victoryPercent: scenario.victory.conquestPercent, homeDefense: scenario.combat?.homeDefense ?? 1.2, warAppetite: scenario.aiWarAppetite ?? 1, captureDays: scenario.combat?.captureDays ?? 1 },
     winner: null,
   };
-  return deployStartingArmies(state, world);
+  return initEconomy(deployStartingArmies(state, world), world);
 }
 
 export { allied, armiesIn, atWar, cobelligerents, enemiesOf, friendly, getRelation, provincesOf } from './queries';

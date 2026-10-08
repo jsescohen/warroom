@@ -17,6 +17,8 @@ import { openFeedback } from './menus/feedback';
 import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
+import { openEconomy } from './economyPanel';
+import { budgetOf } from '../core/economy';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
 import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
 import { fill, h, swatch } from './dom';
@@ -24,7 +26,7 @@ import { leaderOf } from '../ai/diplomacyPrompt';
 import { DiplomacyDirector } from '../game/diplomacyDirector';
 import { Diplomat } from '../game/diplomat';
 import { assessAction } from './assessorDialog';
-import { getSettings, onSettingsChange } from './settings';
+import { getSettings, newGameRules, onSettingsChange } from './settings';
 import { DiplomacyWindow } from './diplomacyWindow';
 import { formatDuration, SidePanel, type Selection } from './sidePanel';
 
@@ -37,6 +39,8 @@ export class Hud {
   private tip = h('div', { class: 'hover-tip panel', style: 'display:none' });
   private aiStatus = h('div', { class: 'ai-status' });
   private playerEl = h('div', { class: 'player' });
+  private treasuryEl = h('button', { class: 'btn treasury-btn', title: 'Treasury: income, upkeep, resources and trade (T)' });
+  private treasuryKey = '';
   private speedEl = h('div', { class: 'time-controls' });
   private dateEl = h('div', { class: 'date' });
   private toasts = h('div', { class: 'toasts' });
@@ -63,7 +67,7 @@ export class Hud {
     private onLoadGame: (id: string) => void,
   ) {
     this.side = new SidePanel(map, store.world, {
-      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, difficulty: getSettings().difficulty }, nation),
+      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, ...newGameRules() }, nation),
       declareWar: (target) => void this.declareWar(target),
       selectArmy: (id) => this.select({ kind: 'army', id }),
       armyOrder: (type, army) => this.dispatch({ type, army } as Action),
@@ -87,15 +91,20 @@ export class Hud {
       },
       focus: (id) => renderer.focusOn(id),
       diplomacy: (nation) => this.diplo.open(nation),
+      recruit: (province, unitType) => { if (this.dispatch({ type: 'recruit', province, unitType })) audio.play('order'); },
+      build: (province, building) => { if (this.dispatch({ type: 'build', province, building })) audio.play('order'); },
     });
     const modes = h('div', { class: 'map-modes panel', role: 'radiogroup', 'aria-label': 'Map mode' });
     const renderModes = () => fill(modes,
-      ...([['political', 'Nations', 'Political map: who owns what'], ['relations', 'Relations', 'How each nation feels about you: green friendly, red hostile'], ['alliances', 'Alliances', 'You, allies, friends, enemies and neutrals']] as [MapMode, string, string][])
+      ...([['political', 'Nations', 'Political map: who owns what'], ['relations', 'Relations', 'How each nation feels about you: green friendly, red hostile'], ['alliances', 'Alliances', 'You, allies, friends, enemies and neutrals'], ['resources', 'Resources', 'Where oil, steel, horses and other resources are found']] as [MapMode, string, string][])
         .map(([m, label, title]) => h('button', { class: m === this.mapMode ? 'active' : '', title: `${title} (M)`, onclick: () => this.setMapMode(m) }, label)),
       this.mapMode === 'alliances' ? h('div', { class: 'map-legend' }, ...([['you', 'You'], ['ally', 'Allies'], ['friend', 'Treaties'], ['enemy', 'At war'], ['neutral', 'Neutral']] as [keyof typeof ALIGNMENT_COLORS, string][])
         .map(([k, l]) => h('span', null, h('i', { style: `background:${ALIGNMENT_COLORS[k]}` }), l))) : null,
       this.mapMode === 'relations' ? h('div', { class: 'map-legend gradient' }, h('span', null, 'Hostile'), h('i', null), h('span', null, 'Friendly')) : null,
+      this.mapMode === 'resources' ? h('div', { class: 'map-legend' }, ...Object.values(store.world.resources)
+        .map((r) => h('span', null, h('i', { style: `background:${r.color}` }), r.name))) : null,
     );
+    renderer.setResourceColors(map.provinces.map((p) => store.world.resources[store.world.provinces[p.id]?.resource ?? '']?.color ?? null));
     this.renderModes = renderModes;
     renderModes();
     const zoom = h('div', { class: 'zoom-controls panel' },
@@ -103,11 +112,13 @@ export class Hud {
       h('button', { title: 'Zoom out', onclick: () => this.zoomBy(1 / 1.6) }, '−'),
       h('button', { title: 'Show whole map', onclick: () => renderer.camera.flyTo(map.width / 2, map.height / 2, renderer.camera.minZoom) }, '⤢'),
     );
+    this.treasuryEl.addEventListener('click', () => this.openTreasury());
     const spectating = store.readOnly;
     if (spectating) this.diploBtn.style.display = 'none';
     this.topbar.append(
       h('div', null, h('div', { class: 'title' }, scenario.name, h('span', { class: 'beta-badge small' }, spectating ? 'Spectating' : 'Beta')), h('div', { class: 'subtitle' }, scenario.subtitle)),
       this.playerEl,
+      this.treasuryEl,
       this.aiStatus,
       this.diploBtn,
       h('button', { class: 'btn diplo-btn', title: 'Ledger: the great powers compared, with graphs (L)', onclick: () => void this.withPause(() => openLedger(store), true) }, 'Ledger'),
@@ -226,6 +237,7 @@ export class Hud {
         for (const e of newImportant(prev, s).slice(-3)) this.toast(e.text, e.nations?.includes(s.playerNation ?? '') ? 'alert' : 'info');
       }
       if (s.playerNation !== prev.playerNation) this.renderPlayer();
+      if (s.nations !== prev.nations || s.clock !== prev.clock || s.playerNation !== prev.playerNation) this.renderTreasury();
       if (this.selection?.kind === 'army' && !s.armies[this.selection.id]) this.select(null);
       else if (this.selection?.kind === 'armies' && this.selection.ids.some((id) => !s.armies[id])) this.selectArmies(this.selection.ids.filter((id) => s.armies[id]));
       else this.side.render(s, this.selection);
@@ -248,6 +260,7 @@ export class Hud {
 
   render() {
     this.renderPlayer();
+    this.renderTreasury();
     this.renderSpeed();
     this.renderClock();
     this.side.render(this.state, this.selection);
@@ -274,7 +287,7 @@ export class Hud {
   }
 
   private setMapMode(m: MapMode) {
-    if (m !== 'political' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
+    if (m !== 'political' && m !== 'resources' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
     this.mapMode = m;
     this.renderer.setMapMode(m);
     this.renderModes();
@@ -494,6 +507,25 @@ export class Hud {
     c.zoomAt(c.viewW / 2, c.viewH / 2, f);
   }
 
+  private openTreasury() {
+    if (!this.state.playerNation) return;
+    void this.withPause(() => openEconomy(this.store, { focus: (p) => { this.renderer.focusOn(p); this.select({ kind: 'province', id: p }); } }), true);
+  }
+
+  /** Money in the top bar: refreshed daily (the budget is not free to compute). */
+  private renderTreasury() {
+    const s = this.state;
+    const me = s.playerNation ? s.nations[s.playerNation] : null;
+    this.treasuryEl.style.display = me ? '' : 'none';
+    if (!me) return;
+    const key = `${Math.floor(s.clock.hours / 24)}|${Math.floor(me.treasury ?? 0)}`;
+    if (key === this.treasuryKey) return;
+    this.treasuryKey = key;
+    const net = budgetOf(s, this.store.world, me.id).net;
+    this.treasuryEl.replaceChildren(h('span', { class: 'coin' }, '◈'), String(Math.floor(me.treasury ?? 0)),
+      h('span', { class: net < 0 ? 'danger-text' : 'ok-text' }, ` ${net >= 0 ? '+' : '−'}${Math.abs(Math.round(net))}`));
+  }
+
   private renderPlayer() {
     const s = this.state;
     const player = s.playerNation ? s.nations[s.playerNation] : null;
@@ -541,9 +573,10 @@ export class Hud {
     else if (e.key === '1' || e.key === '2' || e.key === '3') this.loop.setSpeed(SPEEDS[Number(e.key) - 1] as Speed);
     else if (e.key === 'n' || e.key === 'N') this.skip();
     else if (e.key === 'Escape') { if (this.targeting) this.endStrike(); else if (this.selection) this.select(null); else void this.openMenu(); }
-    else if (e.key === 'd' || e.key === 'D') this.diplo.open(this.selectedNation() ?? undefined);
+    else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this.diplo.open(this.selectedNation() ?? undefined); }
     else if (e.key === 'l' || e.key === 'L') void this.withPause(() => openLedger(this.store), true);
-    else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : 'political');
+    else if (e.key === 't' || e.key === 'T') this.openTreasury();
+    else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : this.mapMode === 'alliances' ? 'resources' : 'political');
     else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
 

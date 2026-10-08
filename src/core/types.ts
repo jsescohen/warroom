@@ -36,7 +36,17 @@ export interface Nation {
   fleets?: string[];
   /** Combat quality multiplier (doctrine, training, equipment of the era). 1 = average. */
   quality: number;
+  /** Money in the treasury (see core/economy.ts). Missing only in saves from before the economy. */
+  treasury?: number;
+  /** Detailed economy: stockpile of each resource. */
+  stock?: Record<string, number>;
+  /** Detailed economy: resources the nation ran out of at the last monthly settlement. */
+  short?: string[];
+  /** Civilians of this nation killed in sieges, battles and strikes. */
+  civDeaths?: number;
 }
+
+export type BuildingId = 'barracks' | 'airfield' | 'fort';
 
 export interface ProvinceState {
   owner: NationId;
@@ -46,6 +56,10 @@ export interface ProvinceState {
   siege?: { by: NationId; progress: number }; // progress 0..1
   /** Strength of the province's own defenders. Missing = at full strength (see garrisonMax). */
   garrison?: number;
+  /** People living there. Missing = its peacetime population (see basePop). */
+  pop?: number;
+  /** Buildings: barracks and airfields recruit troops, forts strengthen the garrison. */
+  build?: BuildingId[];
 }
 
 export interface Army {
@@ -74,7 +88,17 @@ export interface War {
   startedAt: number; // clock hours
 }
 
-export type TreatyType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace';
+export type TreatyType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'trade';
+
+/** A trade route: what each side supplies and the money that changes hands each month. */
+export interface TradeTerms {
+  /** Resource parties[0] supplies to parties[1]. */
+  sell?: string;
+  /** Resource parties[1] supplies to parties[0]. */
+  buy?: string;
+  /** Money parties[0] pays parties[1] each month (negative: parties[1] pays). */
+  gold?: number;
+}
 
 export interface Treaty {
   id: string;
@@ -82,11 +106,12 @@ export interface Treaty {
   parties: NationId[];
   signedAt: number;
   expiresAt?: number;
+  trade?: TradeTerms;
 }
 
 // ---- diplomacy ----------------------------------------------------------------------------------
 
-export type AgreementType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'territory' | 'joint-war' | 'demand';
+export type AgreementType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'territory' | 'joint-war' | 'demand' | 'trade';
 
 /** What is on the table. Provinces are always listed from the proposer's point of view. */
 export interface ProposalTerms {
@@ -99,6 +124,12 @@ export interface ProposalTerms {
   take?: ProvinceId[];
   /** Common enemy for a joint war. */
   target?: NationId;
+  /** Trade: resource the proposer supplies. */
+  sell?: string;
+  /** Trade: resource the proposer receives. */
+  buy?: string;
+  /** Trade: money the proposer pays each month (negative: receives). */
+  gold?: number;
 }
 
 export interface Proposal extends ProposalTerms {
@@ -204,6 +235,10 @@ export interface GameState {
     captureDays: number;
     /** How hard the AI nations play (chosen with the nation). Missing = normal. */
     difficulty?: Difficulty;
+    /** Optional rule: a nation whose capital falls surrenders at once. */
+    capitalFalls?: boolean;
+    /** 'detailed' adds resource stockpiles, consumption and shortages. Missing = simple. */
+    economy?: EconomyMode;
   };
   /** Weekly territory and strength of the great powers, for the ledger (see core/history.ts). */
   history?: History;
@@ -211,6 +246,7 @@ export interface GameState {
 }
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
+export type EconomyMode = 'simple' | 'detailed';
 export const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard'];
 
 /** Multiplier on an AI nation's fighting power: the player always fights at 1. */

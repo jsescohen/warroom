@@ -2,6 +2,7 @@ import type { Command } from './actions';
 import { aiTick } from './ai';
 import { diplomacyTick } from './diplomacy';
 import { HISTORY_EVERY_HOURS, recordHistory } from './history';
+import { economyTick } from './economy';
 import { militaryTick } from './military';
 import type { GameEvent, GameState } from './types';
 import type { World } from './world';
@@ -13,13 +14,14 @@ export type LogFn = (state: GameState, ev: Omit<GameEvent, 'id' | 'at'>) => Game
 /**
  * Advances the world by one tick (clock.tickHours). Pure: every client/server computes the same
  * result. Order: clock → scheduled history → nation AI orders → military (movement, battles,
- * captures) → diplomacy upkeep.
+ * captures) → monthly economy → diplomacy upkeep.
  */
 export function simulateTick(state: GameState, world: World, apply: ApplyFn, log: LogFn): GameState {
   let s: GameState = { ...state, clock: { ...state.clock, hours: state.clock.hours + state.clock.tickHours } };
   s = fireScheduled(s, apply);
   s = aiTick(s, world, apply);
   s = militaryTick(s, world, log);
+  s = economyTick(s, world, log);
   s = diplomacyTick(s);
   if (s.clock.hours % HISTORY_EVERY_HOURS === 0) s = recordHistory(s);
   return s;

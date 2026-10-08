@@ -3,7 +3,8 @@ import { addGrievance, addNote, addRelation, log, logEvent } from './events';
 import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
 import { formatShortDate } from './time';
-import { DIFFICULTIES, relationKey, type Difficulty, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
+import { applyBuild, applyRecruit, buildError, initStocks, recruitError } from './economy';
+import { DIFFICULTIES, relationKey, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
 
@@ -14,7 +15,10 @@ export { logEvent } from './events';
  * logged, replayed, or sent to a server for multiplayer later.
  */
 export type Action =
-  | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty }
+  | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode }
+  /** Buy a new unit at a barracks (land) or airfield (air). */
+  | { type: 'recruit'; province: ProvinceId; unitType: string }
+  | { type: 'build'; province: ProvinceId; building: BuildingId }
   | { type: 'tick' }
   | { type: 'declareWar'; attacker: NationId; defender: NationId }
   | { type: 'moveArmy'; army: ArmyId; to: ProvinceId }
@@ -69,7 +73,12 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       if (!isNation(action.nation)) return 'Unknown nation';
       if (state.playerNation) return 'Nation already chosen';
       if (action.difficulty && !DIFFICULTIES.includes(action.difficulty)) return 'Unknown difficulty';
+      if (action.economy && action.economy !== 'simple' && action.economy !== 'detailed') return 'Unknown economy';
       return null;
+    case 'recruit':
+      return actor === 'system' ? 'Only a nation can recruit' : recruitError(state, world, actor, action.province, action.unitType);
+    case 'build':
+      return actor === 'system' ? 'Only a nation can build' : buildError(state, world, actor, action.province, action.building);
     case 'tick':
       return actor === 'system' ? null : 'Only the simulation advances time';
     case 'declareWar': {
@@ -154,10 +163,22 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
 export function reduce(state: GameState, cmd: Command, world: World): GameState {
   const { action, actor } = cmd;
   switch (action.type) {
-    case 'chooseNation':
-      return logEvent({ ...state, playerNation: action.nation, rules: { ...state.rules, difficulty: action.difficulty ?? 'normal' } }, 'player', `You lead ${state.nations[action.nation].name}.`, {
+    case 'chooseNation': {
+      let s: GameState = {
+        ...state, playerNation: action.nation,
+        rules: { ...state.rules, difficulty: action.difficulty ?? 'normal', capitalFalls: !!action.capitalFalls, economy: action.economy ?? 'simple' },
+      };
+      if (s.rules.economy === 'detailed') s = initStocks(s, world);
+      return logEvent(s, 'player', `You lead ${state.nations[action.nation].name}.`, {
         nations: [action.nation],
       });
+    }
+
+    case 'recruit':
+      return applyRecruit(state, world, actor, action.province, action.unitType);
+
+    case 'build':
+      return applyBuild(state, world, actor, action.province, action.building);
 
     case 'tick':
       return simulateTick(state, world, (s, c) => (validate(s, c, world) ? s : reduce(s, c, world)), log);

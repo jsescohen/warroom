@@ -616,3 +616,19 @@ body.targeting canvas { cursor: crosshair !important; }
 /* a leader's reply failed: say so plainly, offer to ask again */
 .diplo-retry { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 0 12px 8px; padding: 8px 10px; border: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
 .diplo-retry .btn { flex: none; }
+
+/* recruiting and building in the province panel */
+.side-subhead { flex-basis: 100%; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); margin-top: 4px; }
+.econ-btn { font-size: 12px; }
+.econ-btn:disabled { opacity: .5; }
+
+/* treasury: top bar and window */
+.treasury-btn { font-variant-numeric: tabular-nums; gap: 4px; }
+.treasury-btn .coin { color: var(--accent); margin-right: 4px; }
+.econ-head { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 10px; }
+.econ-big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .econ-head { grid-template-columns: repeat(2, 1fr); } }
+.btn.small { padding: 2px 8px; font-size: 12px; margin-left: auto; }
+
+.diplo-gold { width: 64px; margin-left: 4px; }
+.diplo-gold-label { display: inline-flex; align-items: center; }

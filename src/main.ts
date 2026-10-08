@@ -3,6 +3,7 @@ import './ui/console.css';
 import { audio } from './audio/audio';
 import type { ScenarioDef } from './core/scenario';
 import { createInitialState } from './core/state';
+import { initEconomy } from './core/economy';
 import { GameStore } from './core/store';
 import type { GameState } from './core/types';
 import { getScenario, scenarios } from './data/scenarios';
@@ -15,6 +16,7 @@ import { trackPlayStats } from './game/playStats';
 import { GameSession } from './game/session';
 import { formatDate } from './core/time';
 import { applyProvinceNames, buildWorldFromMap, loadMap, provinceMeta, type MapData } from './map/mapData';
+import { resourcesOf } from './data/resources';
 import type { World } from './core/world';
 import { MapRenderer } from './map/MapRenderer';
 import { h } from './ui/dom';
@@ -103,10 +105,14 @@ async function spectate(root: HTMLElement, user: string | null, id: string) {
 /** Older map versions kept in public/maps/<version>/ so games saved on them still load (newest first). */
 const LEGACY_MAPS = ['legacy-1'];
 
-/** Brings an older save up to date with the current rules (e.g. fleets were removed from every era). */
+/**
+ * Brings an older save up to date with the current rules: fleets were removed from every era, and
+ * games from before the economy get treasuries and barracks.
+ */
 function migrateSave(s: GameState, world: World): GameState {
   const armies = Object.fromEntries(Object.entries(s.armies).filter(([, a]) => world.unitTypes[a.unitType]));
-  return Object.keys(armies).length === Object.keys(s.armies).length ? s : { ...s, armies };
+  const fixed = Object.keys(armies).length === Object.keys(s.armies).length ? s : { ...s, armies };
+  return initEconomy(fixed, world);
 }
 
 async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameState | null, saveId: string | null, readOnly = false) {
@@ -148,7 +154,7 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   }
   barLabel.textContent = 'Building the world…';
   const map = applyProvinceNames(rawMap, scenario.provinceNames);
-  const world = buildWorldFromMap(map, scenario.unitTypes);
+  const world = buildWorldFromMap(map, scenario.unitTypes, resourcesOf(scenario.era));
 
   if (saved && !fits(map)) {
     loading.replaceChildren(h('div', null, 'This save was made with a map this version of the game no longer has, so it cannot be loaded.', h('div', null, h('button', { class: 'btn', onclick: go.menu }, 'Main menu'))));

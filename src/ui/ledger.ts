@@ -60,13 +60,13 @@ export function openLedger(store: GameStore) {
     const th = (label: string, key?: typeof sortBy) =>
       h('th', { class: key ? 'num sortable' : '', title: key ? 'Sort' : '', onclick: key ? () => { sortBy = key; render(); } : undefined }, key === sortBy ? `${label} ▾` : label);
     fill(content, h('table', { class: 'data-table ledger' },
-      h('thead', null, h('tr', null, th('Nation'), th('Provinces', 'provinces'), th('Share'), th('Armies', 'armies'), th('Fleets'), th('Strength', 'strength'), th('Allies'), th('At war with'))),
+      h('thead', null, h('tr', null, th('Nation'), th('Provinces', 'provinces'), th('Share'), th('Armies', 'armies'), th('Treasury'), th('Strength', 'strength'), th('Allies'), th('At war with'))),
       h('tbody', null, ...rows.map((r) => h('tr', { class: r.n.id === s.playerNation ? 'me' : '' },
         h('td', null, swatch(r.n.color), ' ', r.n.shortName),
         h('td', { class: 'num' }, String(r.provinces)),
         h('td', { class: 'num' }, `${((r.provinces / total) * 100).toFixed(1)}%`),
         h('td', { class: 'num' }, String(r.armies)),
-        h('td', { class: 'num' }, String(r.fleets)),
+        h('td', { class: 'num' }, String(Math.floor(r.n.treasury ?? 0))),
         h('td', { class: 'num' }, String(r.strength)),
         h('td', { class: 'num' }, String(r.allies)),
         h('td', { class: 'wars' }, r.wars.join(', ') || '—'),

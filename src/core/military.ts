@@ -3,13 +3,13 @@ import { nextRandom } from './rng';
 import type { UnitTypeDef } from './scenario';
 import { aiEdge, type Army, type ArmyId, type GameEvent, type GameState, type Nation, type NationId, type ProvinceId, type ProvinceState } from './types';
 import type { Link, World } from './world';
+import { applyCivilianLosses, popRatio } from './population';
 
 // ---- tuning -----------------------------------------------------------------------------------
 const DAMAGE_PER_DAY = 0.12; // fraction of (strength x attack) inflicted per day of battle
 const CAPITAL_DEFENSE = 1.25;
 const CAPTURE_PER_DAY = 1.0; // an unopposed full-strength army takes about a day to capture a province
 const REINFORCE_PER_DAY = 0.03;
-const MOBILIZE_EVERY_DAYS = 30;
 const FLEET_BUILD_EVERY_DAYS = 60;
 export const BASE_STRENGTH = 10;
 /** A fleeing government relocates at least this far (map units, ~600 km in Europe). */
@@ -23,6 +23,12 @@ const GARRISON_DEFENSE = 2.5;
 const GARRISON_REGEN_PER_DAY = 0.1;
 /** Shore bombardment damage per day per strength point and bombard factor (weaker than a battle line). */
 const BOMBARD_PER_DAY = 0.06;
+/** Share of a province's people killed per day of battle there, and per day of siege. */
+const BATTLE_DEATHS_PER_DAY = 0.004;
+const SIEGE_DEATHS_PER_DAY = 0.0015;
+const STRIKE_DEATHS = 0.005;
+/** Detailed economy: units whose resource ran out fight at this share of their strength. */
+const SHORTAGE_FACTOR = 0.75;
 /** Troops crossing a sea the enemy controls lose this fraction of their strength per day. */
 const CONVOY_LOSS_PER_DAY = 0.3;
 /** Enemy fleets control a sea area when they are this much stronger than ours there. */
@@ -73,7 +79,7 @@ export function homelandOf(s: GameState, world: World, n: NationId, include: (p:
  */
 export function effectiveSize(s: GameState, world: World, n: NationId, owned: ProvinceId[]): number {
   const home = s.nations[n]?.capital ? homelandOf(s, world, n) : null;
-  return owned.reduce((x, p) => x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p), 0);
+  return owned.reduce((x, p) => x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p) * (0.4 + 0.6 * popRatio(s, world, p)), 0);
 }
 
 /**
@@ -134,7 +140,8 @@ export function garrisonMax(s: GameState, p: ProvinceId): number {
   const home = ps.core === ps.owner ? 2 : 0.7;
   // a great power's capital is a fortress; a small state's much less so
   const capital = n.capital === p ? Math.min(8, 3 + Math.sqrt(coreCount(s, n.id)) * 0.6) : 0;
-  return Math.round((home * Math.sqrt(Math.max(0.3, n.military)) + capital) * 10) / 10;
+  const fort = ps.build?.includes('fort') ? 1.5 : 1;
+  return Math.round((home * Math.sqrt(Math.max(0.3, n.military)) + capital) * fort * 10) / 10;
 }
 
 /** Provinces each nation started with (its cores), counted once per province table. */
@@ -278,7 +285,7 @@ export function findPath(s: GameState, world: World, owner: NationId, unitType: 
 export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: (s: GameState, ev: Omit<GameEvent, 'id' | 'at'>) => GameState, world?: World): GameState {
   const from = s.provinces[province].owner;
   if (from === to) return s;
-  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0 } };
+  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0, ...(s.provinces[province].pop !== undefined ? { pop: s.provinces[province].pop } : {}), ...(s.provinces[province].build ? { build: s.provinces[province].build } : {}) } };
   let next: GameState = { ...s, provinces };
   const loser = s.nations[from];
   const remaining = Object.keys(provinces).filter((id) => provinces[id].owner === from);
@@ -420,7 +427,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       const a = armies[id];
       const sea = fleet(id);
       const unit = world.unitTypes[a.unitType];
-      const quality = (s.nations[a.owner]?.quality ?? 1) * aiEdge(s, a.owner);
+      const quality = (s.nations[a.owner]?.quality ?? 1) * aiEdge(s, a.owner) * supplyFactor(s, world, a);
       const targets = here.filter((t) => fleet(t) === sea && atWar(s, a.owner, armies[t].owner));
       const vsGarrison = !sea && g > 0 && atWar(s, a.owner, owner);
       if (targets.length || vsGarrison) {
@@ -483,6 +490,10 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     delete battles[province];
   }
 
+  // civilians die where armies fight
+  const civilian = new Map<ProvinceId, number>();
+  for (const p of fought) civilian.set(p, BATTLE_DEATHS_PER_DAY * tickDays);
+
   // province updates are batched into one copy of the province table (it has ~2,000 entries)
   let patch: Record<ProvinceId, ProvinceState> | null = null;
   const prov = (id: ProvinceId) => (patch ?? s.provinces)[id];
@@ -509,6 +520,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
     const lead = besiegers.reduce((a, b) => (s.armies[b].strength > s.armies[a].strength ? b : a));
     const by = s.armies[lead].owner;
+    civilian.set(province, Math.max(civilian.get(province) ?? 0, SIEGE_DEATHS_PER_DAY * tickDays));
     if ((p.garrison ?? garrisonMax(s, province)) > 0.05) {
       // still fighting the garrison: show the siege, but no progress yet
       if (p.siege?.by !== by) setProv(province, { ...p, siege: { by, progress: 0 } });
@@ -517,7 +529,8 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     const power = besiegers.filter((id) => s.armies[id].owner === by).reduce((sum, id) => sum + s.armies[id].strength, 0);
     const base = p.siege?.by === by ? p.siege.progress : 0;
     // a capital is a siege, not a march-in: it takes three times as long to occupy
-    const siegeFactor = s.nations[owner]?.capital === province ? 1 / 3 : 1;
+    // and a populous province takes longer to bring under control than empty land
+    const siegeFactor = (s.nations[owner]?.capital === province ? 1 / 3 : 1) / Math.max(0.8, 1 + (provinceWeight(world, province) - 0.55) * 0.8);
     const progress = base + (CAPTURE_PER_DAY / (s.rules.captureDays ?? 1)) * tickDays * Math.min(1, power / 6) * siegeFactor;
     if (progress < 1) {
       setProv(province, { ...p, siege: { by, progress } });
@@ -525,7 +538,10 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
     const wasCapital = s.nations[owner]?.capital === province;
     flush();
-    s = setOwner(s, province, by, log, world);
+    const fallsWhole = wasCapital && !!s.rules.capitalFalls;
+    s = setOwner(s, province, by, fallsWhole ? (st, ev) => (ev.kind === 'capital' ? st : log(st, ev)) : log, world);
+    // optional rule: the nation falls with its capital
+    if (wasCapital && s.rules.capitalFalls && s.nations[owner]?.alive) s = capitalFallen(s, world, owner, by, log);
     if (!wasCapital && (by === player || owner === player))
       s = log(s, { kind: 'capture', text: `${s.nations[by].shortName} captures ${provinceName(world, province)} from ${s.nations[owner].shortName}.`, nations: [by, owner], important: owner === player });
   }
@@ -548,6 +564,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
   }
   flush();
+  s = applyCivilianLosses(s, world, civilian);
 
   // 4. reinforcement in friendly territory (fleets: off a friendly coast), away from battle
   // (a sea battle off the coast does not stop the troops ashore from refitting, and vice versa)
@@ -560,24 +577,13 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
   for (const a of Object.values(reinforced)) {
     if (a.strength >= a.maxStrength || a.progress > 0 || engaged.has(a.id)) continue;
     if (!friendly(s, a.owner, s.provinces[a.location].owner)) continue;
+    if (supplyFactor(s, world, a) < 1) continue; // out of supplies: cannot refit
     reinforced[a.id] = { ...a, strength: Math.min(a.maxStrength, a.strength + a.maxStrength * REINFORCE_PER_DAY * tickDays) };
   }
   s = { ...s, armies: reinforced };
 
-  // 5. mobilization: periodically raise a new army at the capital (and launch a fleet at the home port)
+  // 5. fleets are launched at the home port (land and air units are bought: see core/economy.ts)
   const day = s.clock.hours / 24;
-  if (s.clock.hours % 24 === 0 && day > 0 && day % MOBILIZE_EVERY_DAYS === 0) {
-    for (const n of Object.values(s.nations).sort((a, b) => (a.id < b.id ? -1 : 1))) {
-      if (!n.alive || !n.capital) continue;
-      const count = Object.values(s.armies).filter((a) => a.owner === n.id && !isFleet(world, a.unitType)).length;
-      // difficulty: AI nations keep a smaller (easy) or larger (hard) army than the player could
-      const d = n.id === player ? 'normal' : s.rules.difficulty ?? 'normal';
-      const cap = Math.round(armyCap(effectiveSize(s, world, n.id, provincesOf(s, n.id)), n.military) * (d === 'easy' ? 0.8 : d === 'hard' ? 1.25 : 1));
-      if (count >= cap) continue;
-      s = raiseArmy(s, world, n, n.capital);
-      if (n.id === player) s = log(s, { kind: 'mobilize', text: `A new army is raised at ${provinceName(world, n.capital)}.`, nations: [n.id] });
-    }
-  }
   if (s.clock.hours % 24 === 0 && day > 0 && day % FLEET_BUILD_EVERY_DAYS === 0) {
     for (const n of Object.values(s.nations).sort((a, b) => (a.id < b.id ? -1 : 1))) {
       const port = n.alive ? homePort(s, world, n.id) : null;
@@ -654,6 +660,7 @@ export function applyStrike(state: GameState, world: World, fleetId: ArmyId, tar
     const g = Math.max(0, garrison - (total * garrison) / pool);
     s = { ...s, provinces: { ...s.provinces, [target]: { ...s.provinces[target], garrison: Math.round(g * 100) / 100 } } };
   }
+  s = applyCivilianLosses(s, world, new Map([[target, STRIKE_DEATHS]]));
   const victims = [...new Set([...units.map((u) => u.owner), s.provinces[target].owner])].filter((n) => atWar(s, a.owner, n));
   const player = s.playerNation;
   if (player && (a.owner === player || victims.includes(player))) {
@@ -671,6 +678,28 @@ function raiseUnit(s: GameState, world: World, n: Nation, location: ProvinceId, 
   const id = `a${s.nextId}`;
   const army: Army = { id, name: armyName(no, world.unitTypes[unitType]), owner: n.id, location, strength, maxStrength: strength, unitType, path: [], progress: 0 };
   return { ...s, armies: { ...s.armies, [id]: army }, armyCounters: { ...s.armyCounters, [counter]: no }, nextId: s.nextId + 1 };
+}
+
+/** Adds a unit of a chosen type (recruited troops start under strength and fill up while training). */
+export function raiseUnitOfType(s: GameState, world: World, n: NationId, location: ProvinceId, unitType: string, strength: number, maxStrength = strength): GameState {
+  const next = raiseUnit(s, world, s.nations[n], location, unitType, counterKey(n, isFleet(world, unitType)), maxStrength);
+  const id = `a${s.nextId}`;
+  return { ...next, armies: { ...next.armies, [id]: { ...next.armies[id], strength } } };
+}
+
+/** Detailed economy: an army whose resource has run out fights weaker and cannot refit. */
+export function supplyFactor(s: GameState, world: World, a: Army): number {
+  const short = s.nations[a.owner]?.short;
+  if (!short?.length) return 1;
+  return short.some((r) => world.resources?.[r]?.units?.includes(a.unitType)) ? SHORTAGE_FACTOR : 1;
+}
+
+/** "Capital falls = nation falls": the whole nation passes to the army that took its capital. */
+function capitalFallen(state: GameState, world: World, n: NationId, by: NationId, log: Logger): GameState {
+  let s = log(state, { kind: 'capitulation', text: `${state.nations[n].name} falls with its capital to ${state.nations[by].name}.`, nations: [n, by], important: true });
+  const quiet: Logger = (st, ev) => (ev.kind === 'annexed' || ev.kind === 'capital' ? st : log(st, ev));
+  for (const p of Object.keys(s.provinces).filter((id) => s.provinces[id].owner === n)) s = setOwner(s, p, by, quiet, world);
+  return s;
 }
 
 /** Adds a new army for a nation at a province (pure). */
@@ -827,7 +856,7 @@ function capitulations(state: GameState, world: World, log: Logger): GameState {
     const victor = [...takenBy.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
     s = log(s, { kind: 'capitulation', text: `${nation.name} capitulates to ${s.nations[victor].name}.`, nations: [n, victor], important: true });
     // the capitulation message replaces the usual "has fallen" notice
-    const quiet: Logger = (st, ev) => (ev.kind === 'annexed' ? st : log(st, ev));
+    const quiet: Logger = (st, ev) => (ev.kind === 'annexed' || ev.kind === 'capital' ? st : log(st, ev));
     for (const p of Object.keys(s.provinces).filter((id) => s.provinces[id].owner === n)) s = setOwner(s, p, victor, quiet, world);
   }
   return s;

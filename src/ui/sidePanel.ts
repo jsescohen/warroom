@@ -1,7 +1,9 @@
 import { mergeable } from '../core/actions';
 import { findPath, garrisonMax, garrisonOf, isFleet } from '../core/military';
 import { allied, armiesIn, atWar, enemiesOf, friendly, getRelation, provincesOf } from '../core/queries';
-import type { Army, GameState, NationId } from '../core/types';
+import { BUILDINGS, budgetOf, buildError, needsOf, recruitableTypes, recruitCost, recruitError } from '../core/economy';
+import { basePop, formatPop, nationPop, popOf } from '../core/population';
+import type { Army, BuildingId, GameState, NationId } from '../core/types';
 import type { World } from '../core/world';
 import type { MapData } from '../map/mapData';
 import { fill, h, swatch } from './dom';
@@ -33,6 +35,8 @@ export interface PanelActions {
   groupOrder(type: 'stop' | 'merge' | 'clear', ids: string[]): void;
   focus(provinceId: string): void;
   diplomacy(nation: NationId): void;
+  recruit(province: string, unitType: string): void;
+  build(province: string, building: BuildingId): void;
 }
 
 /**
@@ -182,6 +186,11 @@ export class SidePanel {
     if (s.battles[id] !== undefined) provRows.push(['Battle', h('span', { class: 'danger-text' }, `Raging since ${formatDuration(s.clock.hours - s.battles[id])} ago`)]);
     const g = garrisonOf(s, id), gMax = garrisonMax(s, id);
     provRows.push(['Garrison', h('span', { class: g < gMax * 0.5 ? 'danger-text' : '' }, `${g.toFixed(1)} / ${gMax.toFixed(1)}${g < gMax - 0.05 ? ' (recovering)' : ''}`)]);
+    const pop = popOf(s, this.world, id), base = basePop(s, this.world, id);
+    provRows.push(['Population', pop < base * 0.995 ? h('span', { class: 'danger-text', title: 'Civilians killed or fled in the fighting; they slowly return in peacetime' }, `${formatPop(pop)} (−${Math.round((1 - pop / base) * 100)}% from war)`) : formatPop(pop)]);
+    const res = this.world.resources[this.world.provinces[id]?.resource ?? ''];
+    if (res) provRows.push(['Resource', h('span', { title: res.units?.length ? `Needed by: ${res.units.filter((u) => this.world.unitTypes[u]).map((u) => this.world.unitTypes[u].name).join(', ')}` : 'Sold for money' }, swatch(res.color), `${res.name} (+${res.value}/month)`)]);
+    if (prov.build?.length) provRows.push(['Buildings', prov.build.map((b) => BUILDINGS[b].name).join(', ')]);
     if (prov.siege) provRows.push(['Under siege', `${s.nations[prov.siege.by].shortName} — ${prov.siege.progress > 0 || g <= 0.05 ? `${Math.round(prov.siege.progress * 100)}%` : 'fighting the garrison'}`]);
 
     const here = armiesIn(s, id);
@@ -197,6 +206,12 @@ export class SidePanel {
     const forcesOf = Object.values(s.armies).filter((a) => a.owner === owner.id);
     const fleets = forcesOf.filter((a) => isFleet(this.world, a.unitType)).length;
     nationRows.push(['Armies', String(forcesOf.length - fleets)]);
+    nationRows.push(['Population', formatPop(nationPop(s, this.world, owner.id))]);
+    if ((owner.civDeaths ?? 0) > 0) nationRows.push(['Civilian deaths', h('span', { class: 'danger-text' }, formatPop(owner.civDeaths!))]);
+    if (owner.id === player || !player) {
+      const b = budgetOf(s, this.world, owner.id);
+      nationRows.push(['Treasury', `${Math.floor(owner.treasury ?? 0)} (${b.net >= 0 ? '+' : ''}${b.net}/month)`]);
+    }
     if (fleets) nationRows.push(['Fleets', String(fleets)]);
     if (allies.length) nationRows.push(['Allies', names(allies)]);
     if (enemies.length) nationRows.push(['At war with', h('span', { class: 'danger-text' }, names(enemies))]);
@@ -215,8 +230,29 @@ export class SidePanel {
     );
 
     const canDeclare = !!player && player !== owner.id && !atWar(s, player, owner.id) && !(friendly(s, player, owner.id) && !allied(s, player, owner.id));
-    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}`;
+    // recruiting and building in your own provinces
+    const econ: { label: string; err: string | null; title: string; run: () => void }[] = [];
+    if (player && owner.id === player) {
+      for (const u of recruitableTypes(this.world)) {
+        const def = this.world.unitTypes[u];
+        const needs = needsOf(this.world, u).map((r) => this.world.resources[r]?.name ?? r);
+        const where = def.strike ? 'airfield' : 'barracks';
+        if (!prov.build?.includes(where)) continue;
+        econ.push({ label: `${def.name} · ${recruitCost(s, this.world, player, u)}`, err: recruitError(s, this.world, player, id, u),
+          title: `Recruit a new ${def.name.toLowerCase()} here (attack ${def.attack}, defence ${def.defense}). It starts at ${Math.round(40)}% strength and trains up.${needs.length ? ` Needs ${needs.join(' and ')}: without it, it costs more.` : ''}`,
+          run: () => this.act.recruit(id, u) });
+      }
+      for (const b of Object.keys(BUILDINGS) as BuildingId[]) {
+        if (prov.build?.includes(b)) continue;
+        const err = buildError(s, this.world, player, id, b);
+        if (err && /no aircraft/.test(err)) continue;
+        econ.push({ label: `Build ${BUILDINGS[b].name.toLowerCase()} · ${BUILDINGS[b].cost}`, err, title: BUILDINGS[b].text, run: () => this.act.build(id, b) });
+      }
+    }
+    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}`;
     this.setActions(key, [
+      ...(econ.length ? [h('div', { class: 'side-subhead' }, 'Recruit and build')] : []),
+      ...econ.map((e) => h('button', { class: 'btn econ-btn', disabled: !!e.err, title: e.err ?? e.title, onclick: e.run }, e.label)),
       !player ? h('button', { class: 'btn primary', title: 'Play as this nation for the rest of the game', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
       player && player !== owner.id ? h('button', { class: 'btn', title: 'Open a conversation with their leader: talk, propose deals (D)', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,
       canDeclare ? h('button', { class: 'btn danger', title: 'Start a war: their allies may join them, and any treaty with them is broken', onclick: () => this.act.declareWar(owner.id) }, `Declare war on ${owner.shortName}`) : null,

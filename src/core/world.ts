@@ -1,4 +1,4 @@
-import type { UnitTypeDef } from './scenario';
+import type { ResourceDef, UnitTypeDef } from './scenario';
 import type { ProvinceId } from './types';
 
 /**
@@ -20,6 +20,8 @@ export interface WorldProvince {
   coastal: boolean;
   /** Population of the province's main city (0 when it has none): how much the province counts. */
   pop: number;
+  /** Natural resource the province produces (see ResourceDef), if any. */
+  resource?: string;
   links: Link[];
 }
 
@@ -28,6 +30,8 @@ export interface World {
   /** Province ids in a stable order (iteration order for the simulation). */
   order: ProvinceId[];
   unitTypes: Record<string, UnitTypeDef>;
+  /** The era's resources by id. */
+  resources: Record<string, ResourceDef>;
   /** Fraction of land speed when moving over a sea lane. */
   seaSpeed: number;
 }
@@ -39,6 +43,8 @@ export interface WorldProvinceInput {
   area: number;
   coastal: boolean;
   pop?: number;
+  /** [lon, lat], used to place resources. */
+  lonlat?: [number, number];
   neighbors: ProvinceId[];
 }
 
@@ -47,13 +53,33 @@ const SEA_LINKS_PER_PROVINCE = 2;
 const SHORTCUT_MIN_HOPS = 5; // same-landmass lanes only when the land route is this many hops or longer
 const ISLAND_LINK_MAX = 420; // remote islands get one lane to the nearest other landmass within this
 
-export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[], seaSpeed = 0.5): World {
+/** Deterministic 0..1 roll for a province and a key. */
+export function roll(id: string, key: string): number {
+  let h = 2166136261;
+  const s = `${id}:${key}`;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
+/** The resource a province holds: the first of the era's resources whose region roll succeeds. */
+export function resourceAt(id: string, lonlat: [number, number] | undefined, resources: ResourceDef[]): string | undefined {
+  if (!lonlat) return undefined;
+  const [lon, lat] = lonlat;
+  for (const r of resources) {
+    const chance = Math.max(0, ...r.regions.filter(([x0, x1, y0, y1]) => lon >= x0 && lon <= x1 && lat >= y0 && lat <= y1).map((g) => g[4]));
+    if (chance > 0 && roll(id, r.id) < chance) return r.id;
+  }
+  return undefined;
+}
+
+export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[], seaSpeed = 0.5, resources: ResourceDef[] = []): World {
   const provinces: Record<ProvinceId, WorldProvince> = {};
   const byId = new Map(input.map((p) => [p.id, p]));
   const dist = (a: WorldProvinceInput, b: WorldProvinceInput) => Math.hypot(a.label[0] - b.label[0], a.label[1] - b.label[1]);
   for (const p of input) {
     provinces[p.id] = {
-      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0,
+      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0, resource: resourceAt(p.id, p.lonlat, resources),
       links: p.neighbors.filter((n) => byId.has(n)).map((n) => ({ to: n, dist: round1(dist(p, byId.get(n)!)), sea: false })),
     };
   }
@@ -144,6 +170,7 @@ export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[]
     provinces,
     order: input.map((p) => p.id),
     unitTypes: Object.fromEntries(unitTypes.map((u) => [u.id, u])),
+    resources: Object.fromEntries(resources.map((r) => [r.id, r])),
     seaSpeed,
   };
 }

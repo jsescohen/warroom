@@ -11,6 +11,10 @@ export interface Settings {
   advisor: AssessorMode;
   /** Difficulty for new games (each game keeps its own). */
   difficulty: 'easy' | 'normal' | 'hard';
+  /** New games: a nation surrenders as soon as its capital falls. */
+  capitalFalls: boolean;
+  /** New games: simple economy, or detailed with resource stockpiles. */
+  economy: 'simple' | 'detailed';
   /** The first-game tutorial was finished or skipped. */
   tutorialDone: boolean;
   /** AI leaders may write to the player first. */
@@ -36,12 +40,15 @@ export interface Settings {
 
 const KEY = 'warroom.settings';
 export const DEFAULT_SETTINGS: Settings = {
-  autoPause: 'mine', advisor: 'major', difficulty: 'normal', tutorialDone: false, aiMessages: true, dialogsPause: true, autosave: 'monthly', edgeScroll: true,
+  autoPause: 'mine', advisor: 'major', difficulty: 'normal', capitalFalls: false, economy: 'simple', tutorialDone: false, aiMessages: true, dialogsPause: true, autosave: 'monthly', edgeScroll: true,
   muted: false, masterVolume: 0.8, sfxVolume: 0.8, musicVolume: 0.35, music: true, uiSounds: true,
   uiScale: 1, provinceLabels: true, reduceMotion: false,
 };
 
 let current: Settings = load();
+
+/** The rules a new game is started with (chosen with the nation). */
+export const newGameRules = () => ({ difficulty: current.difficulty, capitalFalls: current.capitalFalls, economy: current.economy });
 const listeners = new Set<(s: Settings, prev: Settings) => void>();
 
 /** Fills gaps and rejects bad values so an old or hand-edited entry can never break the game. */
@@ -54,6 +61,8 @@ export function sanitizeSettings(raw: Partial<Settings>): Settings {
     autoPause: pick(raw.autoPause, ['off', 'mine', 'all'] as const, d.autoPause),
     advisor: pick(raw.advisor, ['off', 'major', 'all'] as const, d.advisor),
     difficulty: pick(raw.difficulty, ['easy', 'normal', 'hard'] as const, d.difficulty),
+    capitalFalls: bool(raw.capitalFalls, d.capitalFalls),
+    economy: pick(raw.economy, ['simple', 'detailed'] as const, d.economy),
     tutorialDone: typeof raw.tutorialDone === 'boolean' ? raw.tutorialDone : d.tutorialDone,
     aiMessages: bool(raw.aiMessages, d.aiMessages),
     dialogsPause: bool(raw.dialogsPause, d.dialogsPause),

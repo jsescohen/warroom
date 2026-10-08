@@ -1,4 +1,5 @@
 import { addGrievance, addRelation, getRel, logEvent, log } from './events';
+import { accessOf, needsOf, producedBy } from './economy';
 import { setOwner } from './military';
 import { allied, atWar, friendly, provincesOf } from './queries';
 import { formatShortDate } from './time';
@@ -21,7 +22,11 @@ export const AGREEMENT_LABEL: Record<AgreementType, string> = {
   territory: 'Territory exchange',
   'joint-war': 'Joint war',
   demand: 'Ultimatum',
+  trade: 'Trade agreement',
 };
+
+/** Most money a trade agreement can move each month. */
+export const MAX_TRADE_GOLD = 30;
 
 const treatyBetween = (s: GameState, a: NationId, b: NationId, type: Treaty['type']) =>
   s.treaties.find((t) => t.type === type && t.parties.includes(a) && t.parties.includes(b));
@@ -69,6 +74,16 @@ export function validateTerms(s: GameState, t: ProposalTerms): string | null {
       if (!owns(t.take, t.to)) return 'Those provinces have changed hands';
       if (!noCapital(t.take)) return 'You cannot demand a capital';
       return null;
+    case 'trade': {
+      if (war) return `You are at war with ${name(t.to)}`;
+      const g = t.gold ?? 0;
+      if (!t.sell && !t.buy) return 'Pick a resource to sell or to buy';
+      if (!Number.isFinite(g) || Math.abs(g) > MAX_TRADE_GOLD) return `Payments are limited to ${MAX_TRADE_GOLD} a month`;
+      if (t.sell && t.sell === t.buy) return 'Pick two different resources';
+      const dup = s.treaties.some((x) => x.type === 'trade' && x.parties.includes(t.from) && x.parties.includes(t.to) &&
+        ((t.sell && (x.parties[0] === t.from ? x.trade?.sell : x.trade?.buy) === t.sell) || (t.buy && (x.parties[0] === t.from ? x.trade?.buy : x.trade?.sell) === t.buy)));
+      return dup ? 'You already trade that resource with them' : null;
+    }
     case 'joint-war':
       if (!t.target || !s.nations[t.target]?.alive) return 'Pick a common enemy';
       if (t.target === t.from || t.target === t.to) return 'Pick a third nation';
@@ -96,6 +111,14 @@ export function describeTerms(s: GameState, world: World, t: ProposalTerms): str
         .filter(Boolean).join('; ') + '.';
     case 'demand': return `${n(t.from)} demands that ${n(t.to)} cede ${ps(t.take)}.`;
     case 'joint-war': return `${n(t.from)} and ${n(t.to)} go to war together against ${n(t.target!)}.`;
+    case 'trade': {
+      const r = (id?: string) => world.resources[id ?? '']?.name ?? id;
+      const parts = [t.sell ? `${n(t.from)} supplies ${r(t.sell)}` : '', t.buy ? `${n(t.to)} supplies ${r(t.buy)}` : ''];
+      const g = t.gold ?? 0;
+      if (g > 0) parts.push(`${n(t.from)} pays ${g} a month`);
+      if (g < 0) parts.push(`${n(t.to)} pays ${-g} a month`);
+      return `${parts.filter(Boolean).join('; ')}. Lasts until either side ends it.`;
+    }
   }
 }
 
@@ -141,6 +164,10 @@ export function applyAgreement(state: GameState, world: World, p: Proposal): Gam
       transfer(p.take, from);
       s = addRelation(s, from, to, -15);
       s = addGrievance(s, to, from, `${formatShortDate(s.clock)}: forced us to cede land.`);
+      break;
+    case 'trade':
+      s = { ...s, treaties: [...s.treaties, { id: `t${s.nextId}`, type: 'trade', parties: [from, to], signedAt: s.clock.hours, trade: { sell: p.sell, buy: p.buy, gold: p.gold ?? 0 } }], nextId: s.nextId + 1 };
+      s = addRelation(s, from, to, 5);
       break;
     case 'joint-war':
       for (const n of [from, to]) if (!atWar(s, n, p.target!)) s = declareWar(s, n, p.target!);
@@ -230,6 +257,30 @@ export function willingness(s: GameState, world: World, t: ProposalTerms, respon
       if (allied(s, responder, other)) add(-20, 'demanded by an ally');
       const friends = Object.keys(s.nations).filter((x) => x !== other && allied(s, responder, x));
       if (friends.length) add(-friends.length * 10, 'our allies would back us');
+      break;
+    }
+    case 'trade': {
+      // what each side gets: a resource it lacks is worth most when its troops need it
+      const gets = responder === t.to ? t.sell : t.buy;
+      const gives = responder === t.to ? t.buy : t.sell;
+      const giver = responder === t.to ? t.from : t.to;
+      const access = accessOf(s, world, responder);
+      const needed = new Set(Object.values(s.armies).filter((a) => a.owner === responder).flatMap((a) => needsOf(world, a.unitType)));
+      if (gets) {
+        const real = producedBy(s, world, giver).has(gets);
+        const v = !real ? 0 : access.has(gets) ? 2 : needed.has(gets) ? 35 : 12;
+        add(v, real ? `we would get ${world.resources[gets]?.name ?? gets}` : `${name(giver)} has no ${world.resources[gets]?.name ?? gets} to sell`);
+      }
+      if (gives) {
+        if (!producedBy(s, world, responder).has(gives)) add(-60, `we produce no ${world.resources[gives]?.name ?? gives}`);
+        else add(-4, `we supply ${world.resources[gives]?.name ?? gives}`);
+        // a producer has only so much to spare
+        const buyers = s.treaties.filter((x) => x.type === 'trade' && x.parties.includes(responder) && (x.parties[0] === responder ? x.trade?.sell : x.trade?.buy) === gives).length;
+        if (buyers >= 3) add(-40, `already supplying ${buyers} nations`);
+      }
+      const money = (responder === t.to ? 1 : -1) * (t.gold ?? 0);
+      add(money * 3, money >= 0 ? 'payment' : 'we must pay');
+      add(12, 'trade benefits both sides');
       break;
     }
     case 'joint-war': {

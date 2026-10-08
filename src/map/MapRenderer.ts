@@ -8,7 +8,7 @@ import { Camera } from './camera';
 import { provinceContains, type MapData, type ProvinceGeo } from './mapData';
 
 /** How provinces are coloured: by owner, by their feelings towards the player, or by alignment. */
-export type MapMode = 'political' | 'relations' | 'alliances';
+export type MapMode = 'political' | 'relations' | 'alliances' | 'resources';
 
 /** Alliances mode colours (also used by the legend). */
 export const ALIGNMENT_COLORS = { you: '#3d7fd6', ally: '#3fa86b', friend: '#9cc9a6', enemy: '#d0453a', neutral: '#8f8f8a' } as const;
@@ -164,6 +164,13 @@ export class MapRenderer {
   }
 
   private mapMode: MapMode = 'political';
+  /** Resources map mode: the colour of each province's resource (by province index), or null. */
+  private resourceColors: (string | null)[] = [];
+
+  setResourceColors(colors: (string | null)[]) {
+    this.resourceColors = colors;
+    if (this.mapMode === 'resources') { this.map.provinces.forEach((_, i) => this.applyTint(i)); this.needsRender = true; }
+  }
 
   /** Recolours every province for a map mode. */
   setMapMode(mode: MapMode) {
@@ -218,6 +225,10 @@ export class MapRenderer {
     if (!s || !n) return 0x999999;
     const p = s.playerNation;
     const paper = (c: string) => mix(c, this.theme.map.paper, this.theme.map.paperMix * 0.6);
+    if (this.mapMode === 'resources') {
+      const c = this.resourceColors[i];
+      return c ? mix(c, this.theme.map.paper, 0.15) : mix('#8f8f8a', this.theme.map.paper, 0.5);
+    }
     if (this.mapMode === 'relations' && p) {
       if (n.id === p) return paper(ALIGNMENT_COLORS.you);
       const r = getRelation(s, p, n.id); // -100 … 100: red … grey … green

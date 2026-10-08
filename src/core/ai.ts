@@ -1,10 +1,11 @@
 import type { Command } from './actions';
 import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplomacy';
 import { addRelation, getRel } from './events';
-import { fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
+import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, needsOf, producedBy, manpowerCap, recruitCost, recruitError, supportedArmies, upkeepOf } from './economy';
+import { BASE_STRENGTH, fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
 import { nextRandom } from './rng';
-import type { Army, GameState, NationId, ProvinceId } from './types';
+import type { Army, BuildingId, GameState, NationId, ProposalTerms, ProvinceId } from './types';
 import type { World } from './world';
 
 /**
@@ -37,6 +38,7 @@ export function aiTick(state: GameState, world: World, apply: Apply): GameState 
     s = planFleets(s, world, n, apply, day);
     s = planStrikes(s, world, n, apply);
     if ((day + i) % 7 === 0) s = strategize(s, world, n, apply, day);
+    if ((day + i) % 7 === 3) s = planEconomy(s, world, n, apply, day);
   });
   if (slot === 0 && day > 0 && day % 30 === 0) s = driftRelations(s);
   return s;
@@ -455,8 +457,90 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
   return s;
 }
 
+// ---- economy ------------------------------------------------------------------------------------
+
+/**
+ * Weekly: keep the army at the size the nation supports (the AI plays by the player's rules: it
+ * pays for every unit), recruiting next to the front; with money to spare, build barracks,
+ * airfields and forts; and buy resources its troops lack.
+ */
+function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, day: number): GameState {
+  let s = state;
+  const me = s.nations[n];
+  if (!me?.alive || !me.capital) return s;
+  const owned = Object.keys(s.provinces).filter((p) => s.provinces[p].owner === n);
+  const enemies = Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e));
+  const front = owned.filter((p) => world.provinces[p].links.some((l) => enemies.includes(s.provinces[l.to].owner)));
+  // a rich treasury raises extra armies, up to the nation's manpower
+  const target = (me.treasury ?? 0) > 150 ? manpowerCap(s, world, n) : Math.round(supportedArmies(s, world, n) * difficultyMult(s, n));
+  const toFront = (p: ProvinceId) => (front.length ? Math.min(...front.map((f) => dist(world, p, f))) : dist(world, p, me.capital!));
+
+  // 1) recruit: up to two units a week while under strength and the money lasts
+  for (let k = 0; k < 2 && armyCount(s, world, n) < target; k++) {
+    const nation = s.nations[n];
+    const b = budgetOf(s, world, n);
+    const counter = s.armyCounters[n] ?? 0;
+    const wanted = nation.units[counter % nation.units.length];
+    const base = nation.units.find((u) => !isAirUnit(world, u) && !needsOf(world, u).length) ?? nation.units[0];
+    let placed = false;
+    for (const unit of [...new Set([wanted, base])]) {
+      const kind: BuildingId = isAirUnit(world, unit) ? 'airfield' : 'barracks';
+      const sites = owned.filter((p) => s.provinces[p].build?.includes(kind)).sort((a, c) => toFront(a) - toFront(c) || (a < c ? -1 : 1));
+      const site = sites.find((p) => !recruitError(s, world, n, p, unit));
+      if (!site) continue;
+      // keep a running budget: the new unit's upkeep must be affordable, or the treasury must carry
+      // the deficit for half a year
+      const cost = recruitCost(s, world, n, unit);
+      const net = b.net - upkeepOf(s, world, { owner: n, unitType: unit, maxStrength: BASE_STRENGTH } as Army);
+      if (net < 0 && (nation.treasury ?? 0) - cost < -net * 6) break;
+      s = apply(s, { action: { type: 'recruit', province: site, unitType: unit }, actor: n });
+      placed = true;
+      break;
+    }
+    if (!placed) break;
+  }
+
+  // 2) build with what is left over (one building a week, keeping a reserve for recruits)
+  const nation = s.nations[n];
+  const has = (b: BuildingId) => owned.filter((p) => s.provinces[p].build?.includes(b));
+  const spare = (nation.treasury ?? 0) - 30;
+  const home = owned.filter((p) => s.provinces[p].core === n).sort((a, c) => world.provinces[c].pop - world.provinces[a].pop || (a < c ? -1 : 1));
+  const tryBuild = (p: ProvinceId | undefined, b: BuildingId) => {
+    if (!p || spare < BUILDINGS[b].cost) return false;
+    const before = s;
+    s = apply(s, { action: { type: 'build', province: p, building: b }, actor: n });
+    return s !== before;
+  };
+  if (armyCount(s, world, n) >= target || spare > 80) {
+    const lacks = (b: BuildingId) => (p: ProvinceId) => !s.provinces[p].build?.includes(b);
+    if (has('barracks').length < 1 + Math.floor(target / 8)) tryBuild(home.find(lacks('barracks')), 'barracks');
+    else if (eraHasAir(world) && nation.units.some((u) => isAirUnit(world, u)) && has('airfield').length < 1 + Math.floor(target / 16)) tryBuild(home.find(lacks('airfield')), 'airfield');
+    else if (!s.provinces[me.capital].build?.includes('fort') && spare > 60) tryBuild(me.capital, 'fort');
+    else if (has('fort').length < 4 && spare > 120) tryBuild([...front].sort((a, c) => world.provinces[c].pop - world.provinces[a].pop || (a < c ? -1 : 1)).find(lacks('fort')), 'fort');
+  }
+
+  // 3) once a month, buy a resource the troops need and the nation lacks
+  // (only worth it with a few units that need it, and money to pay)
+  if (Math.floor(day / 7) % 4 === 0 && budgetOf(s, world, n).net > 6) {
+    const access = accessOf(s, world, n);
+    const users = new Map<string, number>();
+    for (const a of Object.values(s.armies)) if (a.owner === n) for (const r of needsOf(world, a.unitType)) users.set(r, (users.get(r) ?? 0) + 1);
+    const want = [...users.keys()].filter((r) => (users.get(r) ?? 0) >= 3 && (!access.has(r) || s.nations[n].short?.includes(r))).sort()[0];
+    if (want) {
+      const sellers = Object.keys(s.nations).filter((x) => x !== n && x !== s.playerNation && s.nations[x].alive && !atWar(s, n, x) && getRel(s, n, x) >= -10 && producedBy(s, world, x).has(want)).sort();
+      for (const x of sellers.slice(0, 6)) {
+        const terms = { type: 'trade' as const, from: n, to: x, buy: want, gold: 4 };
+        if (validateTerms(s, terms) || willingness(s, world, terms, x).score < ACCEPT_LEAN) continue;
+        s = sign(s, apply, terms);
+        break;
+      }
+    }
+  }
+  return s;
+}
+
 /** Two AI nations agree on terms: propose and accept in one go. */
-function sign(s: GameState, apply: Apply, terms: { type: 'peace' | 'alliance'; from: NationId; to: NationId }): GameState {
+function sign(s: GameState, apply: Apply, terms: ProposalTerms): GameState {
   const proposed = apply(s, { action: { type: 'propose', terms }, actor: terms.from });
   if (proposed === s) return s;
   const p = proposed.proposals[proposed.proposals.length - 1];

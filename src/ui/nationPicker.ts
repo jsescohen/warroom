@@ -1,5 +1,5 @@
-import { segmented } from './menus/shell';
-import { getSettings, updateSettings } from './settings';
+import { segmented, toggle } from './menus/shell';
+import { getSettings, newGameRules, updateSettings } from './settings';
 import { audio } from '../audio/audio';
 import { leaderOf } from '../ai/diplomacyPrompt';
 import { provincesOf } from '../core/queries';
@@ -17,6 +17,11 @@ export const DIFFICULTY_HINT = {
   easy: 'Easy: AI nations field smaller, weaker armies and rarely start wars.',
   normal: 'Normal: the AI plays by the same rules as you.',
   hard: 'Hard: AI armies are larger and fight harder, and the AI picks fights sooner, with you too.',
+};
+
+export const ECONOMY_HINT = {
+  simple: 'Simple: provinces earn money, you buy troops at barracks, resources make units cheaper.',
+  detailed: 'Detailed: as simple, plus resource stockpiles that armies use up. Run out and those units fight weaker.',
 };
 
 export class NationPicker {
@@ -62,6 +67,11 @@ export class NationPicker {
       h('div', { class: 'picker-difficulty' }, h('span', null, 'Difficulty'),
         segmented(getSettings().difficulty, [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], (v) => { updateSettings({ difficulty: v }); this.render(); })),
       h('p', { class: 'setting-hint' }, DIFFICULTY_HINT[getSettings().difficulty]),
+      h('div', { class: 'picker-difficulty' }, h('span', null, 'Economy'),
+        segmented(getSettings().economy, [['simple', 'Simple'], ['detailed', 'Detailed']], (v) => { updateSettings({ economy: v }); this.render(); })),
+      h('p', { class: 'setting-hint' }, ECONOMY_HINT[getSettings().economy]),
+      h('div', { class: 'picker-difficulty' }, h('span', { title: 'When a nation loses its capital it surrenders at once, with all its land' }, 'Capital falls = nation falls'),
+        toggle(getSettings().capitalFalls, (v) => { updateSettings({ capitalFalls: v }); }, 'Capital falls = nation falls')),
       h('p', { class: 'setting-hint' }, 'Click a nation below, or any nation on the map and choose "Lead" in its panel.'),
       h('div', { class: 'pick-list' }, ...rows),
     );
@@ -79,7 +89,7 @@ export class NationPicker {
   }
 
   private choose(id: string) {
-    this.store.dispatch({ type: 'chooseNation', nation: id, difficulty: getSettings().difficulty }, id);
+    this.store.dispatch({ type: 'chooseNation', nation: id, ...newGameRules() }, id);
     this.renderer.setSelection(null);
     audio.play('capture');
   }
