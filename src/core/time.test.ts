@@ -46,7 +46,8 @@ describe('scheduled history', () => {
 
   it('the Soviet–German pact is broken only if the USSR attacks Germany', () => {
     const s = runUntil(fresh(), '1939-09-18');
-    expect(atWar(s, 'SOV', 'POL')).toBe(true);
+    // the USSR invaded Poland on schedule (Poland may already have capitulated since)
+    expect(s.events.some((e) => e.kind === 'war' && e.nations?.[0] === 'SOV' && e.nations?.[1] === 'POL')).toBe(true);
     expect(s.treaties.some((t) => t.type === 'non-aggression' && t.parties.includes('SOV'))).toBe(true);
   });
 });

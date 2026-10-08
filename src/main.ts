@@ -14,7 +14,8 @@ import { installErrorReports, reportError, setErrorContext } from './game/errorR
 import { trackPlayStats } from './game/playStats';
 import { GameSession } from './game/session';
 import { formatDate } from './core/time';
-import { applyProvinceNames, buildWorldFromMap, loadMap, provinceMeta } from './map/mapData';
+import { applyProvinceNames, buildWorldFromMap, loadMap, provinceMeta, type MapData } from './map/mapData';
+import type { World } from './core/world';
 import { MapRenderer } from './map/MapRenderer';
 import { h } from './ui/dom';
 import { EndScreen } from './ui/endScreen';
@@ -99,6 +100,15 @@ async function spectate(root: HTMLElement, user: string | null, id: string) {
   return startGame(root, getScenario(rec.scenarioId)!, rec.state, null, true);
 }
 
+/** Older map versions kept in public/maps/<version>/ so games saved on them still load (newest first). */
+const LEGACY_MAPS = ['legacy-1'];
+
+/** Brings an older save up to date with the current rules (e.g. fleets were removed from every era). */
+function migrateSave(s: GameState, world: World): GameState {
+  const armies = Object.fromEntries(Object.entries(s.armies).filter(([, a]) => world.unitTypes[a.unitType]));
+  return Object.keys(armies).length === Object.keys(s.armies).length ? s : { ...s, armies };
+}
+
 async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameState | null, saveId: string | null, readOnly = false) {
   const theme = getTheme(scenario.theme);
   applyTheme(theme);
@@ -114,15 +124,22 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   root.append(stage, loading);
 
   // Labels are rasterised by Pixi, so make sure the era's web fonts are ready first.
-  let rawMap;
+  // A save keeps the map it was made on: games from before a map rebuild load the older map.
+  const progress = (f: number) => {
+    bar.style.width = f < 0 ? '60%' : `${Math.round(f * 100)}%`;
+    bar.classList.toggle('indeterminate', f < 0);
+  };
+  const fits = (m: MapData) => !!saved && Object.keys(saved.provinces).length === m.provinces.length && Object.keys(saved.provinces).every((id) => m.byId.has(id));
+  let rawMap: MapData;
   try {
-    [rawMap] = await Promise.all([
-      loadMap(scenario.map, (f) => {
-        bar.style.width = f < 0 ? '60%' : `${Math.round(f * 100)}%`;
-        bar.classList.toggle('indeterminate', f < 0);
-      }),
-      themeFontsReady(theme),
-    ]);
+    const savedOnLegacy = saved && LEGACY_MAPS.some((v) => saved.mapId.includes(`/${v}/`));
+    [rawMap] = await Promise.all([loadMap(savedOnLegacy ? saved!.mapId : scenario.map, progress), themeFontsReady(theme)]);
+    if (saved && !fits(rawMap)) {
+      for (const v of LEGACY_MAPS) {
+        const older = await loadMap(scenario.map.replace('/maps/', `/maps/${v}/`), progress).catch(() => null);
+        if (older && fits(older)) { rawMap = older; break; }
+      }
+    }
   } catch (e) {
     reportError(e, 'map-load');
     barLabel.textContent = (e as Error).message;
@@ -133,12 +150,11 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   const map = applyProvinceNames(rawMap, scenario.provinceNames);
   const world = buildWorldFromMap(map, scenario.unitTypes);
 
-  // a save made before the map was rebuilt does not fit it (provinces were renumbered)
-  if (saved && (Object.keys(saved.provinces).length !== map.provinces.length || Object.keys(saved.provinces).some((id) => !map.byId.has(id)))) {
-    loading.replaceChildren(h('div', null, 'This save was made with a different version of the map and cannot be loaded.', h('div', null, h('button', { class: 'btn', onclick: go.menu }, 'Main menu'))));
+  if (saved && !fits(map)) {
+    loading.replaceChildren(h('div', null, 'This save was made with a map this version of the game no longer has, so it cannot be loaded.', h('div', null, h('button', { class: 'btn', onclick: go.menu }, 'Main menu'))));
     return;
   }
-  const state = saved ?? createInitialState(scenario, map.id, map.provinces.map((p) => ({ ...provinceMeta(p), pop: p.pop })), world);
+  const state = saved ? migrateSave({ ...saved, mapId: rawMap.id }, world) : createInitialState(scenario, map.id, map.provinces.map((p) => ({ ...provinceMeta(p), pop: p.pop })), world);
   const store = new GameStore(state, world);
   store.readOnly = readOnly;
 

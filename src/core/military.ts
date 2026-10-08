@@ -47,25 +47,55 @@ export const seaUnitTypes = (world: World) => Object.values(world.unitTypes).fil
 const counterKey = (n: NationId, fleet: boolean) => (fleet ? `${n}:fleet` : n);
 
 /**
- * Province count for army size: the homeland counts fully, distant colonies at a quarter
- * (otherwise colonial empires would field enormous home armies).
+ * A nation's homeland: the land it holds that is connected to its capital over land (Siberia is
+ * Russian homeland; India was a British colony). `include` decides which provinces count as its
+ * own for the walk (held ones, or held and core ones).
+ */
+export function homelandOf(s: GameState, world: World, n: NationId, include: (p: ProvinceId) => boolean = (p) => s.provinces[p]?.owner === n): Set<ProvinceId> {
+  const cap = s.nations[n]?.capital;
+  const home = new Set<ProvinceId>();
+  if (!cap || !world.provinces[cap]) return home;
+  const stack = [cap];
+  home.add(cap);
+  while (stack.length) {
+    for (const l of world.provinces[stack.pop()!].links) {
+      if (l.sea || home.has(l.to) || !include(l.to)) continue;
+      home.add(l.to);
+      stack.push(l.to);
+    }
+  }
+  return home;
+}
+
+/**
+ * Province count for army size: the homeland counts fully, colonies (overseas or cut off) at
+ * COLONY_WEIGHT (otherwise colonial empires would field enormous home armies).
  */
 export function effectiveSize(s: GameState, world: World, n: NationId, owned: ProvinceId[]): number {
-  const cap = s.nations[n]?.capital;
-  const at = cap ? world.provinces[cap]?.label : undefined;
-  if (!at) return owned.length;
-  return owned.reduce((x, p) => {
-    const q = world.provinces[p].label;
-    return x + (Math.hypot(q[0] - at[0], q[1] - at[1]) <= HOMELAND_RADIUS ? 1 : 0.25);
-  }, 0);
+  const home = s.nations[n]?.capital ? homelandOf(s, world, n) : null;
+  return owned.reduce((x, p) => x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p), 0);
 }
-const HOMELAND_RADIUS = 200;
+
+/**
+ * How much a province is worth to a nation's strength: a big city counts fully, empty desert or
+ * tundra much less (province counts follow land area, so without this Saudi Arabia's sands would
+ * raise a larger army than Italy).
+ */
+export function provinceWeight(world: World, p: ProvinceId): number {
+  const pop = world.provinces[p]?.pop ?? 0;
+  return pop >= 1_000_000 ? 1 : pop >= 250_000 ? 0.85 : pop >= 50_000 ? 0.7 : pop > 0 ? 0.55 : 0.25;
+}
+const COLONY_WEIGHT = 0.15;
 /** Core provinces from which a nation counts as large (see capitulations). */
 const LARGE_NATION = 25;
 
-/** Target number of field armies for a nation of this size. */
+/**
+ * Target number of field armies for a nation of this size. Grows with size^0.75: a nation ten
+ * times larger fields about five and a half times as many armies (a square root gave three,
+ * which made small nations too strong and large ones too weak).
+ */
 export const armyCap = (provinceCount: number, military: number) =>
-  Math.max(1, Math.min(30, Math.round(military * (2 + Math.sqrt(provinceCount)))));
+  Math.max(1, Math.min(40, Math.round(military * (1 + Math.pow(provinceCount, 0.75) * 0.75))));
 
 /** Target number of fleets: about six for a first-rate naval power, none without a coast. */
 export function fleetCap(s: GameState, world: World, n: NationId): number {
@@ -102,7 +132,21 @@ export function garrisonMax(s: GameState, p: ProvinceId): number {
   const n = ps && s.nations[ps.owner];
   if (!n?.alive) return 0;
   const home = ps.core === ps.owner ? 2 : 0.7;
-  return Math.round((home * Math.sqrt(Math.max(0.3, n.military)) + (n.capital === p ? 5 : 0)) * 10) / 10;
+  // a great power's capital is a fortress; a small state's much less so
+  const capital = n.capital === p ? Math.min(8, 3 + Math.sqrt(coreCount(s, n.id)) * 0.6) : 0;
+  return Math.round((home * Math.sqrt(Math.max(0.3, n.military)) + capital) * 10) / 10;
+}
+
+/** Provinces each nation started with (its cores), counted once per province table. */
+const coreCounts = new WeakMap<object, Map<NationId, number>>();
+function coreCount(s: GameState, n: NationId): number {
+  let m = coreCounts.get(s.provinces);
+  if (!m) {
+    m = new Map();
+    for (const p of Object.values(s.provinces)) if (p.core) m.set(p.core, (m.get(p.core) ?? 0) + 1);
+    coreCounts.set(s.provinces, m);
+  }
+  return m.get(n) ?? 0;
 }
 export const garrisonOf = (s: GameState, p: ProvinceId) => s.provinces[p]?.garrison ?? garrisonMax(s, p);
 /** Garrison strength as defensive power (comparable to armyPower of a defending army). */
@@ -675,7 +719,8 @@ export function deployStartingArmies(s: GameState, world: World): GameState {
     };
     const capAt = world.provinces[n.capital ?? owned[0]].label;
     const d = (p: ProvinceId) => Math.hypot(world.provinces[p].label[0] - capAt[0], world.provinces[p].label[1] - capAt[1]);
-    const homeland = (p: ProvinceId) => d(p) <= HOMELAND_RADIUS;
+    const homeSet = homelandOf(s, world, n.id);
+    const homeland = (p: ProvinceId) => homeSet.has(p);
     const ranked = owned
       .filter((p) => p !== n.capital)
       // borders at home matter far more than colonial frontiers
@@ -757,11 +802,8 @@ function capitulations(state: GameState, world: World, log: Logger): GameState {
     if (!nation?.alive || !nation.capital || !belligerents.has(n)) continue;
     const enemies = Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e));
     if (!enemies.length) continue;
-    const capAt = world.provinces[nation.capital].label;
-    const weight = (p: ProvinceId) => {
-      const q = world.provinces[p].label;
-      return Math.hypot(q[0] - capAt[0], q[1] - capAt[1]) <= HOMELAND_RADIUS ? 1 : 0.25;
-    };
+    const homeSet = homelandOf(s, world, n, (p) => s.provinces[p]?.core === n || s.provinces[p]?.owner === n);
+    const weight = (p: ProvinceId) => (homeSet.has(p) ? 1 : COLONY_WEIGHT);
     let total = 0, held = 0, count = 0, heldCount = 0;
     const takenBy = new Map<NationId, number>();
     for (const [p, ps] of Object.entries(s.provinces)) {

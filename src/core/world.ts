@@ -18,6 +18,8 @@ export interface WorldProvince {
   label: [number, number];
   area: number;
   coastal: boolean;
+  /** Population of the province's main city (0 when it has none): how much the province counts. */
+  pop: number;
   links: Link[];
 }
 
@@ -36,6 +38,7 @@ export interface WorldProvinceInput {
   label: [number, number];
   area: number;
   coastal: boolean;
+  pop?: number;
   neighbors: ProvinceId[];
 }
 
@@ -50,7 +53,7 @@ export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[]
   const dist = (a: WorldProvinceInput, b: WorldProvinceInput) => Math.hypot(a.label[0] - b.label[0], a.label[1] - b.label[1]);
   for (const p of input) {
     provinces[p.id] = {
-      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal,
+      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0,
       links: p.neighbors.filter((n) => byId.has(n)).map((n) => ({ to: n, dist: round1(dist(p, byId.get(n)!)), sea: false })),
     };
   }
