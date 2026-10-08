@@ -598,3 +598,4 @@ body.targeting canvas { cursor: crosshair !important; }
 @media (max-width: 640px) { .admin-row { grid-template-columns: 1fr; } .admin-saves { padding-left: 0; } .admin-head { flex-wrap: wrap; } }
 .username-input { text-transform: none; letter-spacing: 0.04em; }
 .account-bar .btn { white-space: nowrap; padding: 5px 10px; }
+.main-foot a { color: inherit; }

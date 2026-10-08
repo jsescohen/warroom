@@ -113,6 +113,7 @@ function screen(root: HTMLElement, title: string, text: string, items: HTMLEleme
         h('h2', { class: 'gate-title' }, title),
         h('p', { class: 'main-tagline' }, text),
         h('div', { class: 'main-buttons' }, ...items),
+        h('p', { class: 'main-foot' }, h('a', { href: '/privacy.html' }, 'Privacy'), ' · ', h('a', { href: '/terms.html' }, 'Terms')),
       ),
     ));
   });
