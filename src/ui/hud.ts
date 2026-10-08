@@ -48,6 +48,9 @@ export class Hud {
   private hovered: string | null = null;
   private diplo: DiplomacyWindow;
   private diploBtn = h('button', { class: 'btn diplo-btn', title: 'Diplomacy (D)' }, 'Diplomacy');
+  /** Phones: Diplomacy and Ledger sit in a small bar at the bottom (the top bar has no room). */
+  private mobileDiplo = h('button', { class: 'btn diplo-btn' }, 'Diplomacy');
+  private mobileBar = h('div', { class: 'mobile-bar' });
   private speedBeforeDiplomacy: Speed = 0;
   private mapMode: MapMode = 'political';
   private hoveredArmy: string | null = null;
@@ -148,11 +151,16 @@ export class Hud {
         else if (this.speedBeforeDiplomacy) loop.setSpeed(this.speedBeforeDiplomacy);
       },
       onUnreadChange: (n) => {
-        this.diploBtn.dataset.badge = n ? String(n) : '';
-        this.diploBtn.classList.toggle('has-badge', n > 0);
+        for (const b of [this.diploBtn, this.mobileDiplo]) {
+          b.dataset.badge = n ? String(n) : '';
+          b.classList.toggle('has-badge', n > 0);
+        }
       },
     });
     this.diploBtn.addEventListener('click', () => this.diplo.open());
+    this.mobileDiplo.addEventListener('click', () => this.diplo.open());
+    this.mobileBar.append(...(store.readOnly ? [] : [this.mobileDiplo]),
+      h('button', { class: 'btn diplo-btn', onclick: () => void this.withPause(() => openLedger(store), true) }, 'Ledger'));
     if (!spectating) new DiplomacyDirector(store, diplomat, () => getSettings().aiMessages, (from) => {
       audio.play('message');
       const s = this.state;
@@ -161,7 +169,7 @@ export class Hud {
       this.toast(`✉ Message from ${leader} (${s.nations[from].shortName}). Click to read.`, hostile ? 'alert' : 'info', () => this.diplo.open(from));
     });
     const news = new NewsTicker(store, scenario);
-    root.append(this.topbar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
+    root.append(this.topbar, this.mobileBar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
 
     renderer.on('select', (id) => {
       if (this.targeting) { if (id) this.fireStrike(id); return; }

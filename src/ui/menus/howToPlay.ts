@@ -79,6 +79,7 @@ const SECTIONS: Section[] = [
     id: 'keys', label: 'Controls',
     items: [
       ['Mouse', 'Drag the map to pan, scroll to zoom. Click a province or counter to inspect it.'],
+      ['Touch', 'Drag to pan, pinch to zoom. Tap a counter, then tap where it should go (or drag the counter there). Press and hold a counter to add it to a group. The ☰ button holds settings, help and saves.'],
       ['Space', 'Pause / resume'],
       ['1 · 2 · 3', 'Game speed'],
       ['N', 'Skip to the next important event'],

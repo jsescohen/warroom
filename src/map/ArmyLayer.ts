@@ -126,12 +126,13 @@ export class ArmyLayer {
   }
 
   /** Army under a screen point, preferring the player's own armies. */
-  pick(sx: number, sy: number): ArmyId | null {
+  /** The counter at a screen point; `slop` widens the target (fingers are less precise than a mouse). */
+  pick(sx: number, sy: number, slop = 0): ArmyId | null {
     let best: ArmyId | null = null;
     for (const [id, m] of this.markers) {
       if (!m.root.visible) continue;
       const [px, py] = this.camera.worldToScreen(m.x, m.y);
-      if (Math.abs(sx - (px + m.ox)) <= W / 2 && Math.abs(sy - (py + m.oy)) <= H / 2) {
+      if (Math.abs(sx - (px + m.ox)) <= W / 2 + slop && Math.abs(sy - (py + m.oy)) <= H / 2 + slop) {
         if (!best || this.state?.armies[id]?.owner === this.state?.playerNation) best = id;
       }
     }

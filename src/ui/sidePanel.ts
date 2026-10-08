@@ -8,6 +8,9 @@ import type { World } from '../core/world';
 import type { MapData } from '../map/mapData';
 import { fill, h, swatch } from './dom';
 
+/** A touch screen without a mouse (phones, tablets). */
+export const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 export function relationLabel(v: number): { text: string; color: string } {
   if (v >= 50) return { text: 'Friendly', color: 'var(--ok)' };
   if (v >= 10) return { text: 'Cordial', color: 'var(--ok)' };
@@ -50,10 +53,13 @@ export class SidePanel {
   private actionsKey = '';
 
   constructor(private map: MapData, private world: World, private act: PanelActions) {
-    this.el.append(this.info, this.actions);
+    const close = h('button', { class: 'side-close', title: 'Close', 'aria-label': 'Close', onclick: () => this.act.groupOrder('clear', []) }, '✕');
+    this.el.append(close, this.info, this.actions);
   }
 
   render(s: GameState, sel: Selection) {
+    // nothing selected: on phones the panel (a bottom sheet) hides
+    this.el.classList.toggle('idle', !sel);
     if (sel?.kind === 'armies') this.renderGroup(s, sel.ids.map((id) => s.armies[id]).filter((a): a is Army => !!a));
     else if (sel?.kind === 'army' && s.armies[sel.id]) this.renderArmy(s, s.armies[sel.id]);
     else if (sel?.kind === 'province') this.renderProvince(s, sel.id);
@@ -62,7 +68,7 @@ export class SidePanel {
         h('h3', null, 'Command'),
         h('p', { class: 'empty' }, s.playerNation
           ? 'Click one of your army counters, then click a province to send it there. Right-click also orders a move.'
-          : 'Click a province to inspect it and choose the nation you will lead. Scroll to zoom, drag to pan.'),
+          : `Click a province to inspect it and choose the nation you will lead. ${TOUCH ? 'Pinch to zoom, drag to pan.' : 'Scroll to zoom, drag to pan.'}`),
       );
       this.setActions('none', []);
     }

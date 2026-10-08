@@ -1,0 +1,97 @@
+/*
+ * Phones and small tablets. The desktop layout floats panels over the map; on a narrow screen
+ * the top bar wraps onto two rows, the info panel becomes a bottom sheet that only appears when
+ * something is selected, and controls that touch replaces (zoom buttons: pinch) are hidden.
+ */
+
+html, body { overscroll-behavior: none; }
+button, .btn, a, input, select { touch-action: manipulation; }
+
+@media (max-width: 720px) {
+  :root { --hud-top: calc(env(safe-area-inset-top, 0px) + 98px); }
+
+  /* ---- top bar: [nation · treasury · date] / [speed · diplomacy · ledger · menu] ---- */
+  .topbar {
+    top: calc(env(safe-area-inset-top, 0px) + 6px); left: 6px; right: 6px; height: auto;
+    flex-wrap: wrap; gap: 6px; row-gap: 6px; padding: 6px 8px;
+  }
+  .topbar > div:first-child, .topbar .ai-status, .topbar .icon-btn:not(:last-of-type) { display: none !important; }
+  .topbar .player { order: 1; flex: 1 1 auto; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .treasury-btn { order: 2; padding: 5px 8px; font-size: 12px; }
+  .topbar .date { order: 7; min-width: 0; padding: 2px 8px; margin-left: auto; }
+  .topbar .date-main { font-size: 13px; }
+  .topbar .date-turn { font-size: 9px; }
+  .topbar .spacer { order: 5; flex: 1 0 100%; height: 0; }
+  .topbar .time-controls { order: 6; }
+  .topbar .time-controls button { min-width: 32px; height: 32px; padding: 0 6px; font-size: 12px; }
+  .topbar .diplo-btn { display: none; }
+  .mobile-bar {
+    display: flex; position: absolute; left: 6px; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); gap: 6px; z-index: 4;
+  }
+  .mobile-bar .btn { background: var(--panel); box-shadow: var(--shadow); padding: 9px 12px; font-size: 12px; }
+  .topbar .icon-btn { order: 3; width: 34px; height: 34px; padding: 0; }
+
+  .toasts { top: var(--hud-top); }
+
+  /* ---- info panel: a bottom sheet while something is selected ---- */
+  .side {
+    left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 46dvh; overflow-y: auto;
+    border-radius: 12px 12px 0 0; border-bottom: 0; padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 6;
+  }
+  .side.idle { display: none; }
+  .side .side-close { display: flex; }
+  .side h2 { font-size: 18px; padding-right: 40px; }
+  .side-actions .btn { padding: 9px 12px; }
+
+  /* ---- map controls: pinch replaces the zoom buttons; map modes along the top ---- */
+  .zoom-controls { display: none; }
+  .map-modes { top: var(--hud-top); right: 6px; bottom: auto; flex-direction: row; flex-wrap: wrap; max-width: calc(100vw - 12px); }
+  .map-modes > button { padding: 6px 8px; font-size: 10px; }
+  .map-modes > button + button { border-top: 0; border-left: 1px solid var(--panel-border); }
+  .map-modes > button.active { box-shadow: inset 0 -2px 0 var(--accent); }
+  .map-modes .map-legend { flex-basis: 100%; }
+  .log, .news-ticker { display: none !important; }
+
+  /* ---- nation picker: one scrolling sheet ---- */
+  .nation-picker {
+    left: 6px; right: 6px; top: var(--hud-top); width: auto;
+    max-height: calc(100dvh - var(--hud-top) - 8px - env(safe-area-inset-bottom, 0px)); overflow-y: auto;
+  }
+  .nation-picker .pick-list { overflow: visible; }
+
+  /* ---- dialogs ---- */
+  .menu-panel { max-height: calc(100dvh - 16px); padding: 14px; }
+  .modal-backdrop { padding: 8px; }
+  .diplo-backdrop { padding: calc(env(safe-area-inset-top, 0px) + 6px) 6px calc(env(safe-area-inset-bottom, 0px) + 6px); }
+  .diplo { width: 100%; height: 100%; grid-template-rows: minmax(150px, 30%) 1fr; }
+  .diplo-header { padding: 10px 12px; gap: 10px; }
+  .diplo-avatar { width: 38px; height: 38px; font-size: 15px; }
+  .diplo-compose-row { flex-wrap: wrap; }
+  .diplo-compose-row select { max-width: 100%; }
+  .data-table { font-size: 12px; }
+}
+
+/* the close button of the bottom sheet only exists on phones */
+.side-close {
+  display: none; position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; align-items: center; justify-content: center;
+  border: 1px solid var(--panel-border); border-radius: 50%; background: var(--panel-2); cursor: pointer; font-size: 16px;
+}
+
+/* phones held sideways: little height, so keep panels short */
+@media (max-height: 520px) and (min-width: 721px) {
+  .nation-picker { top: 72px; max-height: calc(100dvh - 80px); overflow-y: auto; }
+  .nation-picker .pick-list { overflow: visible; }
+  .side { top: 72px; max-height: calc(100dvh - 84px); }
+  .log, .news-ticker { display: none !important; }
+  .map-modes { bottom: 8px; }
+  .zoom-controls { display: none; }
+  .side.idle { display: none; }
+  .topbar { gap: 8px; padding: 0 8px; }
+  .topbar > div:first-child, .topbar .ai-status, .topbar .icon-btn:not(:last-of-type) { display: none !important; }
+  .topbar .date { min-width: 0; }
+  .topbar .diplo-btn { padding: 6px 8px; font-size: 11px; }
+}
+
+.mobile-bar { display: none; }
+@media (max-width: 720px) { .mobile-bar { display: flex; } }

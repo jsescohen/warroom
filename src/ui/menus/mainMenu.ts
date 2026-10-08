@@ -42,7 +42,7 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
   if (latest) items.push(['Continue', `${latest.nation ?? latest.scenarioName} · ${latest.gameDate} · ${timeAgo(latest.savedAt)}`, () => actions.load(latest!.id)]);
   items.push(['New game', 'Choose an era and a nation', actions.newGame]);
   items.push(['Load game', 'Your saved campaigns', () => void openLoadScreen(actions.load)]);
-  items.push(['How to play', 'Armies, land, fleets, diplomacy', () => void openHowToPlay()]);
+  items.push(['How to play', 'Armies, economy, diplomacy', () => void openHowToPlay()]);
   items.push(['Settings', 'Gameplay, sound, display', () => void openSettings()]);
   if (currentUser()) items.push(['Profile', 'Your stats and achievements', () => void openProfile()]);
   if (currentUser()) items.push(['Feedback', 'Report a bug or suggest an idea', () => void openFeedback()]);

@@ -550,6 +550,12 @@ export class MapRenderer {
     let moved = false;
     let lastMoveT = 0;
     let pinchDist = 0;
+    // touch: counters get a wider target, and pressing and holding one adds it to a group
+    let touch = false;
+    let holdTimer = 0;
+    let held = false;
+    const slop = () => (touch ? 10 : 0);
+    const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; } };
     const rel = (e: PointerEvent | WheelEvent) => {
       const r = canvas.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -576,7 +582,7 @@ export class MapRenderer {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
       try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointers */ }
-      if (pointers.size === 0) { button = e.button; shift = e.shiftKey; }
+      if (pointers.size === 0) { button = e.button; shift = e.shiftKey; touch = e.pointerType === 'touch'; held = false; }
       pointers.set(e.pointerId, rel(e));
       if (pointers.size === 1) {
         downAt = rel(e);
@@ -584,10 +590,23 @@ export class MapRenderer {
         lastMoveT = performance.now();
         if (e.button === 0 && e.shiftKey && !this.armies.pick(downAt.x, downAt.y)) { boxFrom = downAt; return; }
         // pressing on one of your own counters starts an order drag instead of panning
-        const army = e.button === 0 ? this.armies.pick(downAt.x, downAt.y) : null;
+        const army = e.button === 0 ? this.armies.pick(downAt.x, downAt.y, slop()) : null;
         if (army && this.armyDrag?.canDrag(army)) this.draggingArmy = army;
         else this.camera.beginDrag();
+        if (army && touch) {
+          cancelHold();
+          holdTimer = window.setTimeout(() => {
+            holdTimer = 0;
+            if (moved || pointers.size !== 1) return;
+            held = true;
+            this.draggingArmy = null;
+            this.camera.endDrag();
+            navigator.vibrate?.(15);
+            this.handlers.army.forEach((h) => h(army, { shift: true }));
+          }, 450);
+        }
       } else if (pointers.size === 2) {
+        cancelHold();
         this.draggingArmy = null;
         const [a, b] = [...pointers.values()];
         pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -612,7 +631,8 @@ export class MapRenderer {
         pinchDist = d;
         return;
       }
-      if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 5) moved = true;
+      if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > (touch ? 9 : 5)) { moved = true; cancelHold(); }
+      if (held) return;
       if (boxFrom) { if (moved) drawBox(p); return; }
       if (this.draggingArmy) {
         if (!moved) return;
@@ -635,7 +655,9 @@ export class MapRenderer {
       if (!pointers.has(e.pointerId)) return;
       pointers.delete(e.pointerId);
       if (pointers.size > 0) return;
+      cancelHold();
       this.camera.endDrag();
+      if (held) { held = false; this.draggingArmy = null; downAt = null; return; }
       canvas.style.cursor = '';
       if (boxFrom) {
         const from = boxFrom, to = rel(e);
@@ -658,7 +680,7 @@ export class MapRenderer {
         const mods = { shift };
         if (button === 2) this.handlers.command.forEach((h) => h(province, mods));
         else {
-          const army = this.armies.pick(x, y);
+          const army = this.armies.pick(x, y, slop());
           if (army) this.handlers.army.forEach((h) => h(army, mods));
           else this.handlers.select.forEach((h) => h(province, mods));
         }
