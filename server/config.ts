@@ -32,7 +32,8 @@ export const config = {
   },
   accounts: {
     /** Supabase project (Settings → API): sign-in with Google / Discord happens through it. */
-    supabaseUrl: env('SUPABASE_URL'),
+    // the project URL only: tolerate the "API URL" copied with /rest/v1 or a trailing slash
+    supabaseUrl: env('SUPABASE_URL').replace(/\/(rest|auth)\/v1\/?$/, '').replace(/\/+$/, ''),
     /** The public "anon" key: safe to show to browsers (it only allows signing in). */
     supabaseAnonKey: env('SUPABASE_ANON_KEY'),
     /** Postgres connection string for accounts and cloud saves (Supabase → Connect → Session pooler). */
