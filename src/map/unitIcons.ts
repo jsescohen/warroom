@@ -75,11 +75,13 @@ export function drawUnitSymbol(g: Graphics, unitType: string, cx: number, cy: nu
       }
       g.circle(X(8), Y(6), 1.1 * s).fill(color);
       break;
-    case 'archer': // bow, string and arrow
-      g.arc(X(5), Y(6), 5.2 * s, -Math.PI / 2.4, Math.PI / 2.4, false).stroke({ width: 1.5, color });
-      line([6.8, 1.2, 6.8, 10.8], 0.8);
-      line([3, 6, 14.5, 6], 1.2);
-      poly([14.8, 6, 12.2, 4.4, 12.2, 7.6]);
+    case 'archer': // a tall bow drawn back, arrow pointing up and right (not to be mistaken for a plane)
+      g.arc(X(4), Y(6), 5.4 * s, -Math.PI / 2.3, Math.PI / 2.3, false).stroke({ width: 1.6, color });
+      line([5.9, 1, 5.9, 11], 0.8);
+      line([3, 10.5, 13.2, 1.8], 1.2);
+      poly([14.6, 0.6, 11.4, 1.6, 13.4, 3.8]);
+      line([3, 10.5, 2.2, 8.6], 1);
+      line([3, 10.5, 4.9, 11.2], 1);
       break;
     case 'air': // plane seen from above
       poly([8, 0.6, 9, 3, 9, 4.6, 15.4, 7, 15.4, 8.2, 9, 7, 8.8, 9.6, 11, 11, 11, 11.6, 8, 10.8, 5, 11.6, 5, 11, 7.2, 9.6, 7, 7, 0.6, 8.2, 0.6, 7, 7, 4.6, 7, 3]);

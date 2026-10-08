@@ -41,12 +41,14 @@ export class DiplomacyWindow {
   private header = h('div', { class: 'diplo-header' });
   private transcript = h('div', { class: 'diplo-transcript' });
   private typing = h('div', { class: 'diplo-typing loading-dots', style: 'display:none' });
+  /** A failed reply, per nation: shown under the conversation with an "Ask again" button. */
+  private failed = new Map<NationId, string>();
+  private retryBox = h('div', { class: 'diplo-retry', style: 'display:none' });
   private composeType = h('select', { class: 'diplo-select' });
   private composeExtra = h('div', { class: 'diplo-extra' });
   private input = h('textarea', { class: 'diplo-input', rows: 2, placeholder: 'Write a message…', maxlength: 600 });
   private sendBtn = h('button', { class: 'btn primary' }, 'Send');
   private current: NationId | null = null;
-  private seen: Record<string, number> = {};
   private pickGive = new Set<string>();
   private pickTake = new Set<string>();
   private pickTarget = '';
@@ -58,7 +60,7 @@ export class DiplomacyWindow {
       h('div', { class: 'diplo-compose-row' }, this.composeType, this.composeExtra),
       h('div', { class: 'diplo-compose-row' }, this.input, this.sendBtn),
     );
-    const chat = h('section', { class: 'diplo-chat' }, this.header, this.transcript, this.typing, composer);
+    const chat = h('section', { class: 'diplo-chat' }, this.header, this.transcript, this.typing, this.retryBox, composer);
     const side = h('aside', { class: 'diplo-side' },
       h('div', { class: 'diplo-side-head' }, h('h2', null, 'Diplomacy'), h('button', { class: 'diplo-close', title: 'Close (Esc)', onclick: () => this.close() }, '✕')),
       this.search, this.list);
@@ -122,7 +124,7 @@ export class DiplomacyWindow {
     const key = relationKey(me, other);
     const lines = s.diplomacy.chats[key];
     if (!lines) return 0;
-    const seen = this.seen[key] ?? -1;
+    const seen = s.diplomacy.read?.[key] ?? -1;
     return lines.filter((l) => l.from === other && l.id > seen).length;
   }
 
@@ -133,7 +135,10 @@ export class DiplomacyWindow {
     if (this.current && this.isOpen) {
       const key = relationKey(s.playerNation!, this.current);
       const last = s.diplomacy.chats[key]?.at(-1);
-      if (last) this.seen[key] = last.id;
+      if (last && (s.diplomacy.read?.[key] ?? -1) < last.id && !this.store.readOnly) {
+        this.store.dispatch({ type: 'markRead', with: this.current, upTo: last.id }, s.playerNation!);
+        return; // the dispatch re-renders
+      }
       this.hooks.onUnreadChange(this.unreadTotal());
     }
     this.renderList();
@@ -141,6 +146,13 @@ export class DiplomacyWindow {
     this.renderTranscript();
     const busy = !!this.current && this.diplomat.isBusy(this.current);
     this.typing.style.display = busy ? '' : 'none';
+    const fail = this.current && !busy ? this.failed.get(this.current) : undefined;
+    this.retryBox.style.display = fail ? '' : 'none';
+    if (fail && this.current) {
+      const n = this.current;
+      fill(this.retryBox, h('span', null, `No reply from ${leaderOf(this.scenario, s, n).name}. ${fail}`),
+        h('button', { class: 'btn', onclick: () => void this.askAgain(n) }, 'Ask again'));
+    }
     if (busy && this.current) {
       const secs = this.waitStart ? Math.floor((Date.now() - this.waitStart) / 1000) : 0;
       this.typing.textContent = `${leaderOf(this.scenario, s, this.current).name} is drafting a reply${secs >= 3 ? ` (${secs}s)` : ''}`;
@@ -319,18 +331,23 @@ export class DiplomacyWindow {
     this.renderExtra();
     // the player's line carries the proposal card
     if (proposalId) this.store.dispatch({ type: 'chat', with: n, text, proposal: proposalId }, me);
-    const pending = this.diplomat.talk(n, proposalId ? '' : text);
+    await this.awaitReply(n, this.diplomat.talk(n, proposalId ? '' : text));
+  }
+
+  /** Asks the leader again for a reply to the conversation so far (after a failed one). */
+  private async askAgain(n: NationId) {
+    if (this.diplomat.isBusy(n)) return;
+    await this.awaitReply(n, this.diplomat.talk(n, ''));
+  }
+
+  private async awaitReply(n: NationId, pending: Promise<{ error?: string }>) {
+    this.failed.delete(n);
     this.waitStart = Date.now();
     this.render();
     const ticker = window.setInterval(() => this.isOpen && this.render(), 1000);
     const r = await pending.finally(() => window.clearInterval(ticker));
     this.waitStart = 0;
-    if (r.error) {
-      const slow = /longer than|timed out/i.test(r.error);
-      this.hooks.toast(slow
-        ? 'The AI took too long to answer (is your GPU busy with other programs?). The game answered for them.'
-        : `No usable reply from the AI (${r.error}). The game answered for them.`, 'alert');
-    }
+    if (r.error && r.error !== 'Busy') this.failed.set(n, r.error);
     this.render();
   }
 

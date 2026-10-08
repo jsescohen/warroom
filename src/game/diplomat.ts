@@ -61,9 +61,10 @@ export class Diplomat {
       }
 
       const leader = leaderOf(this.scenario, this.store.state, ai);
-      const reply = data?.reply || fallbackReply(leader.name, still ? still.type : null, accepted);
-      this.as(ai, { type: 'chat', with: player, text: reply, proposal: offerId });
-      return res.valid ? {} : { error: 'error' in res ? res.error : 'The leader’s reply could not be understood.' };
+      // no AI reply: post nothing invented, except the formal answer to a proposal the game decided
+      const reply = data?.reply || (still ? fallbackReply(leader.name, still.type, accepted) : null);
+      if (reply) this.as(ai, { type: 'chat', with: player, text: reply, proposal: offerId });
+      return res.valid ? {} : { error: friendlyAiError('error' in res ? res.error : 'unreadable reply') };
     } finally {
       this.busy.delete(ai);
     }
@@ -145,6 +146,14 @@ export class Diplomat {
 
 const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, Math.round(v)));
 const norm = (x: string) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** What went wrong with an AI reply, in words a player understands. */
+export function friendlyAiError(raw: string): string {
+  if (/429|rate|busy|queue|cooldown|too many/i.test(raw)) return 'The AI service is busy right now (its free tier allows only so many messages a minute). Wait a few seconds and ask again.';
+  if (/time|took too long|longer than|abort/i.test(raw)) return 'The AI took too long to answer. Ask again in a moment.';
+  if (/fetch|network|failed to|unreachable|502|503|504/i.test(raw)) return 'The game server could not reach the AI service. Ask again in a moment.';
+  return 'The leader’s reply came back garbled. Ask again.';
+}
 
 function fallbackReply(leader: string, proposalType: string | null, accepted: boolean | null): string {
   if (proposalType && accepted === true) return `${leader} has instructed the ministers to sign.`;

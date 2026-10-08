@@ -56,7 +56,7 @@ class OpenAICompatProvider implements LLMProvider {
       model: this.model,
       messages: [{ role: 'system', content: r.system }, ...r.messages],
       temperature: r.temperature,
-      max_tokens: reasoning ? Math.max(r.maxTokens * 4, 1024) : r.maxTokens,
+      max_tokens: reasoning ? Math.max(Math.round(r.maxTokens * 2.5), 700) : r.maxTokens,
       response_format: r.json && this.nativeJson ? { type: 'json_object' } : undefined,
       ...(reasoning && this.id === 'groq' ? { reasoning_effort: /qwen3/i.test(this.model) ? 'none' : 'low', include_reasoning: false } : {}),
     }, { authorization: `Bearer ${this.apiKey}`, ...this.extraHeaders }, r.signal);

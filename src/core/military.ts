@@ -60,6 +60,8 @@ export function effectiveSize(s: GameState, world: World, n: NationId, owned: Pr
   }, 0);
 }
 const HOMELAND_RADIUS = 200;
+/** Core provinces from which a nation counts as large (see capitulations). */
+const LARGE_NATION = 25;
 
 /** Target number of field armies for a nation of this size. */
 export const armyCap = (provinceCount: number, military: number) =>
@@ -470,7 +472,9 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
     const power = besiegers.filter((id) => s.armies[id].owner === by).reduce((sum, id) => sum + s.armies[id].strength, 0);
     const base = p.siege?.by === by ? p.siege.progress : 0;
-    const progress = base + (CAPTURE_PER_DAY / (s.rules.captureDays ?? 1)) * tickDays * Math.min(1, power / 6);
+    // a capital is a siege, not a march-in: it takes three times as long to occupy
+    const siegeFactor = s.nations[owner]?.capital === province ? 1 / 3 : 1;
+    const progress = base + (CAPTURE_PER_DAY / (s.rules.captureDays ?? 1)) * tickDays * Math.min(1, power / 6) * siegeFactor;
     if (progress < 1) {
       setProv(province, { ...p, siege: { by, progress } });
       continue;
@@ -741,7 +745,8 @@ class MinHeap {
 
 /**
  * A beaten nation surrenders instead of holding a rump capital forever: at war, holding 40% or
- * less of its own land with the enemy in its capital (or 25% or less outright). Colonies weigh a
+ * less of its own land after losing its capital (or 20% or less outright). Large nations
+ * fight on while they hold over a third of their provinces, wherever their capital is. Colonies weigh a
  * quarter. Its remaining provinces pass to the enemy holding most of its land.
  */
 function capitulations(state: GameState, world: World, log: Logger): GameState {
@@ -757,20 +762,26 @@ function capitulations(state: GameState, world: World, log: Logger): GameState {
       const q = world.provinces[p].label;
       return Math.hypot(q[0] - capAt[0], q[1] - capAt[1]) <= HOMELAND_RADIUS ? 1 : 0.25;
     };
-    let total = 0, held = 0;
+    let total = 0, held = 0, count = 0, heldCount = 0;
     const takenBy = new Map<NationId, number>();
     for (const [p, ps] of Object.entries(s.provinces)) {
       if (ps.core !== n) continue;
       const w = weight(p);
       total += w;
-      if (ps.owner === n) held += w;
+      count++;
+      if (ps.owner === n) { held += w; heldCount++; }
       else if (enemies.includes(ps.owner)) takenBy.set(ps.owner, (takenBy.get(ps.owner) ?? 0) + w);
     }
     if (!total || !takenBy.size) continue;
     const share = held / total;
-    // the capital under siege (enemy troops inside it), not merely an enemy at the gates
-    const capitalThreatened = Object.values(s.armies).some((a) => enemies.includes(a.owner) && !isFleet(world, a.unitType) && a.location === nation.capital && a.progress === 0);
-    if (!(share <= 0.25 || (share <= 0.4 && capitalThreatened))) continue;
+    // the capital has fallen (the government had to flee), not merely come under siege
+    const capitalThreatened = s.events.some((e) => e.kind === 'capital' && e.nations?.[0] === n);
+    // large nations trade space for time (China in 1937 moved its capital and fought on): only
+    // smaller ones give up at 40% with the enemy in their capital
+    const large = count >= LARGE_NATION;
+    // large nations also count all their land plainly (distant provinces are not colonies to them)
+    if (large && heldCount / count > 0.35) continue;
+    if (!(share <= 0.2 || (share <= 0.4 && capitalThreatened && !large))) continue;
     const victor = [...takenBy.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
     s = log(s, { kind: 'capitulation', text: `${nation.name} capitulates to ${s.nations[victor].name}.`, nations: [n, victor], important: true });
     // the capitulation message replaces the usual "has fallen" notice

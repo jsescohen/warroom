@@ -31,7 +31,9 @@ export type Action =
   | { type: 'chat'; with: NationId; text: string; proposal?: string }
   | { type: 'adjustRelation'; with: NationId; delta: number }
   | { type: 'remember'; about: NationId; note: string }
-  | { type: 'noteContact' };
+  | { type: 'noteContact' }
+  /** The player has read a conversation up to a message. */
+  | { type: 'markRead'; with: NationId; upTo: number };
 
 /** Who issued an action: a nation (player or AI) or the simulation itself. */
 export type Actor = NationId | 'system';
@@ -143,6 +145,8 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       return actor !== 'system' && isNation(action.about) && action.note.trim() ? null : 'Nothing to remember';
     case 'noteContact':
       return actor !== 'system' && isNation(actor) ? null : 'Unknown nation';
+    case 'markRead':
+      return actor !== 'system' && state.nations[action.with] && Number.isFinite(action.upTo) ? null : 'Unknown conversation';
   }
 }
 
@@ -272,5 +276,11 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
 
     case 'noteContact':
       return { ...state, diplomacy: { ...state.diplomacy, lastContact: { ...state.diplomacy.lastContact, [actor]: state.clock.hours } } };
+
+    case 'markRead': {
+      const key = relationKey(actor, action.with);
+      if ((state.diplomacy.read?.[key] ?? -1) >= action.upTo) return state;
+      return { ...state, diplomacy: { ...state.diplomacy, read: { ...state.diplomacy.read, [key]: action.upTo } } };
+    }
   }
 }

@@ -56,7 +56,9 @@ export const config = {
   /** An AI nation can make at most one request per this window. */
   actorCooldownMs: num('LLM_ACTOR_COOLDOWN_MS', 45_000),
   /** Low-priority requests are rejected when this many are already waiting. */
-  maxQueuedAi: num('LLM_MAX_QUEUED_AI', 4),
+  // free online tiers share a small per-minute budget: keep at most one AI-initiated message waiting,
+  // so a player's own message is never stuck behind several
+  maxQueuedAi: num('LLM_MAX_QUEUED_AI', provider === 'ollama' ? 4 : 1),
 
   ollama: {
     baseUrl: env('OLLAMA_BASE_URL', 'http://localhost:11434'),

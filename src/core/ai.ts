@@ -112,8 +112,12 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
 
   // 2) defence: provinces where the enemy is stronger than we are, capital first
   const capital = s.nations[n].capital;
+  // an ally of the player also guards the player's threatened provinces within reach
+  const player = s.playerNation;
+  const playersAlly = !!player && player !== n && allied(s, n, player);
+  const near = (p: ProvinceId) => mine.some((a) => dist(world, a.location, p) <= MAX_TASK_DIST * 0.6);
   const needs = Object.keys(s.provinces)
-    .filter((p) => owner(p) === n)
+    .filter((p) => owner(p) === n || (playersAlly && owner(p) === player && near(p)))
     // covered = our garrison plus most of our armies next door (they can step in); only real gaps draw reinforcements
     .map((p) => {
       // troops at home fight with the home-ground bonus, alongside the local garrison
@@ -176,7 +180,10 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
     }
     return shares.get(o)!;
   };
-  const candidates = [...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || !outclassed(owner(t))));
+  // caution is set aside for the player's enemies when we are the player's ally: an ally that agreed
+  // to help actually fights (AI-only alliances keep their caution, as in the 1939 "Phoney War")
+  const bold = (o: NationId) => playersAlly && atWar(s, player!, o);
+  const candidates = [...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || bold(owner(t)) || !outclassed(owner(t))));
   // one front at a time: while an enemy is collapsing (holding under 90% of its land), finish it
   // before opening an offensive against a fresh one (retaking our own land is always allowed)
   const collapsing = new Set(enemies.filter((e) => coreShare(e) < 0.9));
@@ -365,19 +372,21 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
   const player = s.playerNation;
   let r: number;
 
-  // 1) honour alliances: join an ally that is defending against an aggressor (if not busy elsewhere)
+  // 1) honour alliances: join an ally that is defending against an aggressor (if not busy elsewhere).
+  // The player's allies always consider the call, wherever they are; AI allies only against a neighbour.
   const busy = alive.some((x) => atWar(s, n, x));
-  for (const w of busy ? [] : s.wars) {
+  for (const w of s.wars) {
     const allyDefending = w.defenders.find((d) => d !== n && allied(s, n, d));
     if (!allyDefending || w.attackers.includes(n) || w.defenders.includes(n)) continue;
+    const forPlayer = allyDefending === player;
+    if (busy && !forPlayer) continue;
     const aggressor = w.attackers[0];
     if (!aggressor || friendly(s, n, aggressor)) continue;
-    // only answer a call to arms against an aggressor we actually border
     const borders = Object.keys(s.provinces).some((p) => s.provinces[p].owner === n &&
       world.provinces[p].links.some((l) => s.provinces[l.to].owner === aggressor));
-    if (!borders) continue;
+    if (!borders && !forPlayer) continue;
     [r, s] = rand(s);
-    const chance = getRel(s, n, aggressor) < 0 ? 0.55 : 0.2;
+    const chance = forPlayer ? 0.9 : getRel(s, n, aggressor) < 0 ? 0.55 : 0.2;
     if (r < chance) s = apply(s, { action: { type: 'declareWar', attacker: n, defender: aggressor }, actor: n });
     break;
   }

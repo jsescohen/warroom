@@ -602,3 +602,17 @@ body.targeting canvas { cursor: crosshair !important; }
 @keyframes load-slide { from { transform: translateX(-60%); } to { transform: translateX(110%); } }
 .era-loading span { font-size: 13px; color: var(--text-dim); }
 .load-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+
+/* top bar: never wrap the era name; give the controls priority on narrow screens */
+.topbar > div:first-child { min-width: 0; flex: 0 1 auto; }
+.topbar .title, .topbar .subtitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar .title { max-width: 260px; }
+.topbar .subtitle { max-width: 320px; }
+.topbar .date { white-space: nowrap; }
+@media (max-width: 1440px) { .topbar .subtitle { display: none; } .topbar { gap: 10px; } }
+@media (max-width: 1180px) { .topbar .title { max-width: 150px; font-size: 16px; } .ai-status { display: none; } }
+@media (max-width: 1020px) { .topbar .title { display: none; } }
+
+/* a leader's reply failed: say so plainly, offer to ask again */
+.diplo-retry { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 0 12px 8px; padding: 8px 10px; border: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
+.diplo-retry .btn { flex: none; }

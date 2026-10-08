@@ -49,6 +49,8 @@ const SHORT_FIELD = args['short-field'] ?? 'ABBREVN';
  * ("Tribes#3"); scenarios name them by region.
  */
 const TRIBES = args.tribes === 'true';
+/** Roughen straight borders between polities: for coarse ancient source maps, not for modern borders that really are straight. */
+const NATURAL_BORDERS = (args['natural-borders'] ?? (TRIBES ? 'true' : 'false')) === 'true';
 
 // ---- tuning -----------------------------------------------------------------------------------
 const WORLD_W = 4096;
@@ -116,6 +118,50 @@ const bbox = (rings: Ring[]) => {
   return { x0, y0, x1, y1 };
 };
 const dist2 = (a: Pt, b: Pt) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+
+// ---- natural province borders --------------------------------------------------------------------
+// Voronoi cells meet along straight lines, which look blocky where provinces are big (deserts,
+// steppe, tribal lands). Each cell edge is replaced by a wiggly line made by midpoint displacement.
+// The wiggle depends only on the edge's two end points (in a fixed order), so the two cells that
+// share an edge get exactly the same line and no gaps or overlaps appear.
+const ROUGH_MIN = 2.6; // stop subdividing below this length (map units)
+const ROUGH_SKIP = 6; // edges shorter than this stay straight
+const ROUGH_AMP = 0.18; // displacement as a share of the segment length
+
+function hash01(a: Pt, b: Pt): number {
+  const s = `${a[0].toFixed(3)},${a[1].toFixed(3)},${b[0].toFixed(3)},${b[1].toFixed(3)}`;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 100000) / 100000;
+}
+function jagged(a: Pt, b: Pt, out: Pt[]) {
+  const len = Math.sqrt(dist2(a, b));
+  if (len < ROUGH_MIN) return;
+  const r = hash01(a, b) - 0.5;
+  const mid: Pt = [(a[0] + b[0]) / 2 - ((b[1] - a[1]) / len) * r * 2 * ROUGH_AMP * len, (a[1] + b[1]) / 2 + ((b[0] - a[0]) / len) * r * 2 * ROUGH_AMP * len];
+  jagged(a, mid, out);
+  out.push(mid);
+  jagged(mid, b, out);
+}
+/** The points strictly between a and b along the wiggly version of the edge. */
+function roughEdge(a: Pt, b: Pt): Pt[] {
+  if (dist2(a, b) < ROUGH_SKIP ** 2) return []; // short edges are not noticeable: keep files small
+  const forward = a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1]);
+  const [p, q] = forward ? [a, b] : [b, a];
+  const out: Pt[] = [];
+  jagged(p, q, out);
+  return forward ? out : out.reverse();
+}
+function roughCell(cell: Pt[]): Pt[] {
+  const ring = cell.length > 1 && cell[0][0] === cell[cell.length - 1][0] && cell[0][1] === cell[cell.length - 1][1] ? cell.slice(0, -1) : cell;
+  const out: Pt[] = [];
+  ring.forEach((a, i) => {
+    const b = ring[(i + 1) % ring.length];
+    out.push(a, ...roughEdge(a, b));
+  });
+  out.push(out[0]);
+  return out;
+}
 const labelPoint = (p: Poly): Pt => {
   const l = polylabel(p as number[][][], 0.5);
   return [l[0], l[1]];
@@ -292,6 +338,41 @@ const trueArea = (p: Poly) => {
   return polyArea(p) * Math.cos(lat) * Math.cos(0.8 * lat);
 };
 
+// Old source maps draw borders between polities as long straight lines. Roughen the edges two
+// polities share vertex for vertex (both sides get the same wiggle; coasts are never shared, so
+// they stay as they are).
+if (NATURAL_BORDERS) {
+  const owners = new Map<string, Set<number>>();
+  const key = (p: Pt) => `${p[0].toFixed(3)},${p[1].toFixed(3)}`;
+  const all: Poly[][] = [...polityList.map((p) => p.geom), ...tribalParts.map((p) => [p])];
+  all.forEach((mp, i) => { for (const poly of mp) for (const ring of poly) for (const pt of ring) {
+    let s = owners.get(key(pt));
+    if (!s) owners.set(key(pt), (s = new Set()));
+    s.add(i);
+  } });
+  const shared = (a: Pt, b: Pt) => {
+    const sa = owners.get(key(a)), sb = owners.get(key(b));
+    if (!sa || !sb || sa.size < 2 || sb.size < 2) return false;
+    let common = 0;
+    for (const x of sa) if (sb.has(x)) common++;
+    return common >= 2; // both ends belong to the same two (or more) polities
+  };
+  let roughened = 0;
+  const roughRing = (ring: Ring): Ring => {
+    const out: Pt[] = [];
+    for (let i = 0; i < ring.length - 1; i++) {
+      const a = ring[i], b = ring[i + 1];
+      out.push(a);
+      if (shared(a, b)) { const mid = roughEdge(a, b); if (mid.length) roughened++; out.push(...mid); }
+    }
+    out.push(ring[ring.length - 1]);
+    return out;
+  };
+  for (const p of polityList) p.geom = p.geom.map((poly) => poly.map(roughRing));
+  for (let i = 0; i < tribalParts.length; i++) tribalParts[i] = tribalParts[i].map(roughRing);
+  console.log(`natural borders: ${roughened} shared polity edges roughened`);
+}
+
 if (TRIBES && LAND) {
   const started = Date.now();
   const landSrc = JSON.parse(fs.readFileSync(LAND, 'utf8')) as { features: SrcFeature[] };
@@ -349,7 +430,10 @@ for (const polity of polityList) {
       ? [[[bb.x0 - pad, bb.y0 - pad], [bb.x1 + pad, bb.y0 - pad], [bb.x1 + pad, bb.y1 + pad], [bb.x0 - pad, bb.y1 + pad]]]
       : (() => {
           const v = Delaunay.from(seeds.map((s) => s.pt)).voronoi([bb.x0 - pad, bb.y0 - pad, bb.x1 + pad, bb.y1 + pad]);
-          return seeds.map((_, i) => (v.cellPolygon(i) as Pt[] | null));
+          return seeds.map((_, i) => {
+            const cell = v.cellPolygon(i) as Pt[] | null;
+            return cell ? roughCell(cell) : null;
+          });
         })();
     seeds.forEach((s, i) => {
       const cell = cells[i];

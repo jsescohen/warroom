@@ -132,6 +132,8 @@ export interface DiplomacyState {
   memories: Record<NationId, Record<NationId, Memory>>;
   /** Clock hour of the last contact a nation initiated (AI director cooldown). */
   lastContact: Record<NationId, number>;
+  /** Last message read in each conversation, keyed by relationKey (so read messages stay read after a reload). */
+  read?: Record<string, number>;
 }
 
 export interface GameEvent {

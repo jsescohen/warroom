@@ -133,7 +133,8 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   const map = applyProvinceNames(rawMap, scenario.provinceNames);
   const world = buildWorldFromMap(map, scenario.unitTypes);
 
-  if (saved && Object.keys(saved.provinces).some((id) => !map.byId.has(id))) {
+  // a save made before the map was rebuilt does not fit it (provinces were renumbered)
+  if (saved && (Object.keys(saved.provinces).length !== map.provinces.length || Object.keys(saved.provinces).some((id) => !map.byId.has(id)))) {
     loading.replaceChildren(h('div', null, 'This save was made with a different version of the map and cannot be loaded.', h('div', null, h('button', { class: 'btn', onclick: go.menu }, 'Main menu'))));
     return;
   }

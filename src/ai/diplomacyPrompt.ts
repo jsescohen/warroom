@@ -53,8 +53,9 @@ export function buildDiplomacyPrompt(i: DiplomacyPromptInput) {
   const treaties = s.treaties.filter((t) => t.parties.includes(ai) && t.parties.includes(other)).map((t) => t.type);
   const mem = memoryOf(s, ai, other);
   const provNames = (ids: string[]) => ids.slice(0, 8).map((p) => world.provinces[p].name).join(', ') || 'none';
-  const chat = (s.diplomacy.chats[relationKey(ai, other)] ?? []).slice(-6)
-    .map((l) => `${l.from === ai ? 'You' : 'Them'}: ${l.text.replace(/\s+/g, ' ').slice(0, 300)}`);
+  // the last few lines only: long histories slowed replies down mid-game
+  const chat = (s.diplomacy.chats[relationKey(ai, other)] ?? []).slice(-4)
+    .map((l) => `${l.from === ai ? 'You' : 'Them'}: ${l.text.replace(/\s+/g, ' ').slice(0, 240)}`);
 
   const system =
     `You are ${L.name}, ${L.title}, in a historical strategy game (${scenario.name}). ` +
@@ -62,6 +63,9 @@ export function buildDiplomacyPrompt(i: DiplomacyPromptInput) {
     (L.grudges?.length ? ` Grudges: ${L.grudges.join('; ')}.` : '') +
     ` You are negotiating with ${themLeader.name} of ${them.name}. Write 1-4 sentences of diplomacy. ` +
     `Focus on statecraft; no slurs or hateful propaganda. Agreements only happen through the JSON fields, never by words alone. ` +
+    // leaders of non-English nations used to answer in their own language
+    `LANGUAGE: write your reply in the same language as their latest message (English if they have not written yet), ` +
+    `never in your own nation's language; at most a single word of it for flavour. ` +
     `Reply with ONLY one JSON object.`;
 
   const lines = [
