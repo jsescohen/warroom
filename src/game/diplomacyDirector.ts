@@ -1,4 +1,5 @@
 import { pickInitiative } from '../core/diplomacy';
+import { isHuman } from '../core/types';
 import type { GameStore } from '../core/store';
 import type { NationId } from '../core/types';
 import type { Diplomat } from './diplomat';
@@ -36,7 +37,8 @@ export class DiplomacyDirector {
       // 1) someone just declared war on the player: they send their declaration
       const war = s.events.find((e) => e.kind === 'war' && !this.handledWarEvents.has(e.id) && e.nations?.[1] === player);
       for (const e of s.events) if (e.kind === 'war') this.handledWarEvents.add(e.id);
-      if (war?.nations?.[0]) {
+      // (a human player who attacks writes their own declaration)
+      if (war?.nations?.[0] && !isHuman(s, war.nations[0])) {
         const from = war.nations[0];
         const ok = await this.diplomat.initiate({ from, kind: 'war-message', purpose: 'You have ALREADY declared war on them and the fighting has begun. Announce it and give your reasons. Make no demands and offer no terms.' });
         if (ok) this.onContact(from);

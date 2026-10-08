@@ -26,6 +26,8 @@ export class GameLoop {
   private listeners = new Set<(speed: Speed, reason?: string) => void>();
   /** When to pause automatically on important events (a player setting). */
   autoPause: AutoPause = 'mine';
+  /** Online games: the server keeps the time; the speed shown is the room's (see setOnlineSpeed). */
+  online = false;
 
   constructor(private store: GameStore, private time: TimeConfig) {
     this.raf = requestAnimationFrame(this.frame);
@@ -41,6 +43,16 @@ export class GameLoop {
   }
 
   setSpeed(s: Speed, reason?: string) {
+    if (this.online) return;
+    this.applySpeed(s, reason);
+  }
+
+  /** Online games: the room's pace (0 while the host has paused it). */
+  setOnlineSpeed(s: Speed, reason?: string) {
+    this.applySpeed(s, reason);
+  }
+
+  private applySpeed(s: Speed, reason?: string) {
     if (s === this._speed) return;
     if (s > 0) this.lastSpeed = s;
     this._speed = s;
@@ -59,6 +71,7 @@ export class GameLoop {
 
   /** Fast-forwards to the next important event, at most `skipMaxTurns` turns. */
   skip(): SkipResult {
+    if (this.online) return { turns: 0 };
     const maxTicks = Math.round((this.time.skipMaxTurns * this.time.turnHours) / this.time.tickHours);
     const start = this.store.state.clock.hours;
     let event: GameEvent | undefined;
@@ -82,7 +95,7 @@ export class GameLoop {
     this.raf = requestAnimationFrame(this.frame);
     const dt = this.last ? Math.min((t - this.last) / 1000, 0.25) : 0;
     this.last = t;
-    if (!this._speed) return;
+    if (!this._speed || this.online) return;
     this.acc += dt * this._speed;
     const interval = this.tickInterval;
     if (this.acc < interval) return;

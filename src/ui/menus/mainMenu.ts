@@ -14,6 +14,7 @@ export interface MainMenuActions {
   newGame(): void;
   load(id: string): void;
   admin(): void;
+  multiplayer(): void;
 }
 
 /** Who is signed in (accounts mode): picture, username, rename, sign out. */
@@ -42,6 +43,7 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
   if (latest) items.push(['Continue', `${latest.nation ?? latest.scenarioName} · ${latest.gameDate} · ${timeAgo(latest.savedAt)}`, () => actions.load(latest!.id)]);
   items.push(['New game', 'Choose an era and a nation', actions.newGame]);
   items.push(['Load game', 'Your saved campaigns', () => void openLoadScreen(actions.load)]);
+  if (currentUser()) items.push(['Multiplayer', 'Play online: public rooms or with friends', actions.multiplayer]);
   items.push(['How to play', 'Armies, economy, diplomacy', () => void openHowToPlay()]);
   items.push(['Settings', 'Gameplay, sound, display', () => void openSettings()]);
   if (currentUser()) items.push(['Profile', 'Your stats and achievements', () => void openProfile()]);
@@ -50,7 +52,7 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
 
   root.replaceChildren(consoleScreen({ page: 'home', title: 'Warroom Beta', right: accountBar() },
     h('main', { class: 'cx-home-main' },
-      h('div', { class: 'cx-kicker' }, h('span', { class: 'cx-dot' }), 'Grand strategy · 3,500 years · 8 eras'),
+      h('div', { class: 'cx-kicker' }, h('span', { class: 'cx-dot' }), `Grand strategy · 3,500 years · ${scenarios.length} eras`),
       h('h1', { class: 'cx-wordmark' }, 'Warroom'),
       h('p', { class: 'cx-lede' }, 'Lead one nation through history. Every other nation is run by an AI leader who remembers what you did.'),
       h('nav', { class: 'cx-menu', 'aria-label': 'Main menu' },

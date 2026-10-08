@@ -1,5 +1,5 @@
 import { provincesOf } from './queries';
-import type { GameState, NationId } from './types';
+import { isHuman, type GameState, type NationId } from './types';
 
 /**
  * A weekly record of every great power's (and the player's) territory and military strength, for
@@ -19,7 +19,7 @@ const MAX_SAMPLES = 160;
 export function recordHistory(s: GameState): GameState {
   const prev = s.history ?? { t: [], nations: {} };
   const tracked = new Set(Object.keys(prev.nations));
-  for (const n of Object.values(s.nations)) if (n.alive && (n.major || n.id === s.playerNation)) tracked.add(n.id);
+  for (const n of Object.values(s.nations)) if (n.alive && (n.major || isHuman(s, n.id))) tracked.add(n.id);
   const strength = new Map<NationId, number>();
   for (const a of Object.values(s.armies)) strength.set(a.owner, (strength.get(a.owner) ?? 0) + a.strength);
   const len = prev.t.length;

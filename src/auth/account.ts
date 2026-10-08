@@ -81,6 +81,9 @@ async function token(): Promise<string | null> {
   return null;
 }
 
+/** The sign-in token (for the multiplayer connection). */
+export const authToken = () => token();
+
 /** fetch() for our own server: adds the sign-in token when there is one. */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const t = await token();

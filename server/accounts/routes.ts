@@ -31,7 +31,11 @@ export class Accounts {
   /** The signed-in caller, creating their account on first sight. Null when not signed in. */
   async caller(req: Request): Promise<Caller | null> {
     const token = bearer(req);
-    if (!token) return null;
+    return token ? this.callerFromToken(token) : null;
+  }
+
+  /** As caller(), from a bare token (multiplayer connections sign in with their first message). */
+  async callerFromToken(token: string): Promise<Caller | null> {
     const user = await this.o.verifier.verify(token);
     if (!user) return null;
     const admin = this.isAdminEmail(user.email);

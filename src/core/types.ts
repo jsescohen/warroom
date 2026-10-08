@@ -204,7 +204,10 @@ export interface GameState {
   scenarioId: string;
   mapId: string;
   clock: Clock;
+  /** The nation the (single) player leads. Null in multiplayer games, which list theirs in `humans`. */
   playerNation: NationId | null;
+  /** Multiplayer: every nation led by a person (the AI leaves these alone). */
+  humans?: NationId[];
   nations: Record<NationId, Nation>;
   provinces: Record<ProvinceId, ProvinceState>;
   /** Relation score -100..100 keyed by relationKey(a, b). Missing = 0. */
@@ -249,9 +252,13 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export type EconomyMode = 'simple' | 'detailed';
 export const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard'];
 
-/** Multiplier on an AI nation's fighting power: the player always fights at 1. */
+/** Nations led by people: the single player, or every player of a multiplayer game. */
+export const humansOf = (s: GameState): NationId[] => s.humans ?? (s.playerNation ? [s.playerNation] : []);
+export const isHuman = (s: GameState, n: NationId | null | undefined): boolean => !!n && (n === s.playerNation || !!s.humans?.includes(n));
+
+/** Multiplier on an AI nation's fighting power: players always fight at 1. */
 export function aiEdge(s: GameState, nation: NationId): number {
-  if (nation === s.playerNation) return 1;
+  if (isHuman(s, nation)) return 1;
   const d = s.rules.difficulty ?? 'normal';
   return d === 'easy' ? 0.85 : d === 'hard' ? 1.15 : 1;
 }

@@ -3,7 +3,7 @@ import { accessOf, needsOf, producedBy } from './economy';
 import { setOwner } from './military';
 import { allied, atWar, friendly, provincesOf } from './queries';
 import { formatShortDate } from './time';
-import { relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms, type ProvinceId, type Treaty } from './types';
+import { isHuman, relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms, type ProvinceId, type Treaty } from './types';
 import { declareWar, makePeace } from './war';
 import type { World } from './world';
 
@@ -178,7 +178,7 @@ export function applyAgreement(state: GameState, world: World, p: Proposal): Gam
   const name = (id: NationId) => s.nations[id]?.shortName ?? id;
   return logEvent(s, 'agreement', `${AGREEMENT_LABEL[p.type]} signed between ${name(from)} and ${name(to)}.`, {
     nations: [from, to],
-    important: s.playerNation === from || s.playerNation === to,
+    important: isHuman(s, from) || isHuman(s, to),
   });
 }
 
@@ -334,7 +334,7 @@ export function pickInitiative(s: GameState, world: World): Initiative | null {
   const myPower = militaryPower(s, world, player);
   const pending = (n: NationId) => s.proposals.some((p) => p.status === 'pending' && [p.from, p.to].includes(n) && [p.from, p.to].includes(player));
 
-  const ids = Object.keys(s.nations).filter((n) => n !== player && s.nations[n].alive).sort();
+  const ids = Object.keys(s.nations).filter((n) => n !== player && s.nations[n].alive && !isHuman(s, n)).sort();
   const candidates: { score: number; init: Initiative }[] = [];
   for (const n of ids) {
     if (now - (s.diplomacy.lastContact[n] ?? -1e9) < CONTACT_COOLDOWN_DAYS * 24 || pending(n)) continue;
@@ -398,7 +398,7 @@ export function diplomacyTick(state: GameState): GameState {
   const name = (id: NationId) => s.nations[id]?.shortName ?? id;
   for (const t of expired) {
     const [a, b] = t.parties;
-    const involvesPlayer = !!s.playerNation && t.parties.includes(s.playerNation);
+    const involvesPlayer = t.parties.some((p) => isHuman(s, p));
     if (t.type === 'ceasefire' && s.nations[a]?.alive && s.nations[b]?.alive && !treatyBetween(s, a, b, 'peace') && !atWar(s, a, b)) {
       s = logEvent(s, 'ceasefire-ended', `The ceasefire between ${name(a)} and ${name(b)} expires. Fighting resumes.`, { nations: t.parties, important: involvesPlayer });
       s = declareWar(s, a, b);

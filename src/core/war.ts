@@ -1,7 +1,7 @@
 import { addGrievance, addRelation, getRel, logEvent, setRelation } from './events';
 import { allied, cobelligerents } from './queries';
 import { formatShortDate } from './time';
-import type { GameState, NationId, Treaty } from './types';
+import { isHuman, type GameState, type NationId, type Treaty } from './types';
 import type { World } from './world';
 
 /** War and treaty-breaking rules shared by actions and diplomacy. Pure. */
@@ -40,7 +40,7 @@ export function leaveTreaty(state: GameState, nation: NationId, treaty: Treaty, 
   }
   return logEvent(s, 'treaty-broken', `${name(nation)} tears up its ${treatyName(treaty.type)} with ${others.map(name).join(', ')}.`, {
     nations: treaty.parties,
-    important: s.playerNation !== null && treaty.parties.includes(s.playerNation),
+    important: treaty.parties.some((p) => isHuman(s, p)),
   });
 }
 
@@ -71,7 +71,7 @@ export function declareWar(state: GameState, attacker: NationId, defender: Natio
   const defenderAllies = s.treaties.filter((t) => t.type === 'alliance' && t.parties.includes(defender)).flatMap((t) => t.parties);
   for (const ally of new Set(defenderAllies)) if (ally !== defender && ally !== attacker) s = addRelation(s, attacker, ally, -15);
 
-  const important = s.playerNation === attacker || s.playerNation === defender || (!!s.nations[attacker]?.major && !!s.nations[defender]?.major);
+  const important = isHuman(s, attacker) || isHuman(s, defender) || (!!s.nations[attacker]?.major && !!s.nations[defender]?.major);
   return logEvent(s, 'war', `${name(attacker)} declares war on ${name(defender)}!`, { nations: [attacker, defender], important });
 }
 

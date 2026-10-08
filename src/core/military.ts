@@ -1,7 +1,7 @@
 import { atWar, friendly, getRelation, provincesOf } from './queries';
 import { nextRandom } from './rng';
 import type { UnitTypeDef } from './scenario';
-import { aiEdge, type Army, type ArmyId, type GameEvent, type GameState, type Nation, type NationId, type ProvinceId, type ProvinceState } from './types';
+import { aiEdge, humansOf, isHuman, type Army, type ArmyId, type GameEvent, type GameState, type Nation, type NationId, type ProvinceId, type ProvinceState } from './types';
 import type { Link, World } from './world';
 import { applyCivilianLosses, popRatio } from './population';
 
@@ -344,7 +344,8 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
   let s = state;
   const armies: Record<ArmyId, Army> = { ...s.armies };
   const ids = Object.keys(armies).sort();
-  const player = s.playerNation;
+  const humanSet = new Set(humansOf(s));
+  const isP = (n: NationId | undefined) => !!n && humanSet.has(n);
   const fleet = (id: ArmyId) => isFleet(world, armies[id].unitType);
 
   const hostilePresent = (province: ProvinceId, nation: NationId, sea: boolean) =>
@@ -377,13 +378,13 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     if (link.sea && !sea && (denied(a.owner, here) || denied(a.owner, next))) {
       if (a.progress === 0) {
         armies[id] = { ...a, path: [] };
-        if (a.owner === player) s = log(s, { kind: 'blockade', text: `${a.name} cannot sail from ${provinceName(world, here)}: enemy fleets control the sea.`, nations: [a.owner], important: true });
+        if (isP(a.owner)) s = log(s, { kind: 'blockade', text: `${a.name} cannot sail from ${provinceName(world, here)}: enemy fleets control the sea.`, nations: [a.owner], important: true });
         continue;
       }
       const strength = a.strength - a.maxStrength * CONVOY_LOSS_PER_DAY * tickDays;
       if (strength < 0.5) {
         delete armies[id];
-        if (a.owner === player) s = log(s, { kind: 'army-destroyed', text: `${a.name} was lost at sea to enemy fleets.`, nations: [a.owner], important: true });
+        if (isP(a.owner)) s = log(s, { kind: 'army-destroyed', text: `${a.name} was lost at sea to enemy fleets.`, nations: [a.owner], important: true });
         continue;
       }
       armies[id] = { ...a, strength };
@@ -455,9 +456,10 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       if (battles[province] === undefined) {
         battles[province] = s.clock.hours;
         const sides = [...new Set(here.map((id) => armies[id].owner))];
-        if (player && sides.includes(player)) {
+        const mine = sides.filter(isP);
+        if (mine.length) {
           const naval = here.every((id) => fleet(id) || !here.some((t) => atWar(s, armies[id].owner, armies[t].owner) && !fleet(t)));
-          const foes = sides.filter((n) => atWar(s, player, n)).map((n) => s.nations[n].shortName).join(', ');
+          const foes = sides.filter((n) => atWar(s, mine[0], n)).map((n) => s.nations[n].shortName).join(', ');
           const where = naval ? `Naval battle off ${provinceName(world, province)}` : `Battle of ${provinceName(world, province)}`;
           s = log(s, { kind: 'battle', text: `${where} begins against ${foes}.`, nations: sides, important: true });
         }
@@ -469,8 +471,8 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     const strength = a.strength - d;
     if (strength < 0.5) {
       delete armies[id];
-      if (a.owner === player || ids.some((o) => armies[o]?.owner === player && armies[o].location === a.location))
-        s = log(s, { kind: 'army-destroyed', text: `${s.nations[a.owner].shortName} ${a.name} ${fleet0(world, a) ? 'sunk off' : 'destroyed at'} ${provinceName(world, a.location)}.`, nations: [a.owner], important: a.owner === player });
+      if (isP(a.owner) || ids.some((o) => isP(armies[o]?.owner) && armies[o].location === a.location))
+        s = log(s, { kind: 'army-destroyed', text: `${s.nations[a.owner].shortName} ${a.name} ${fleet0(world, a) ? 'sunk off' : 'destroyed at'} ${provinceName(world, a.location)}.`, nations: [a.owner], important: isP(a.owner) });
     } else armies[id] = { ...a, strength };
   }
   // battles that ended this tick
@@ -481,7 +483,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       const here = (byProvince.get(province) ?? []).filter((id) => armies[id]);
       if (sameDomainHostile(here)) continue;
       const victors = [...new Set(here.map((id) => armies[id].owner))];
-      if (player && (victors.includes(player) || s.provinces[province].owner === player || victors.length === 0)) {
+      if (humanSet.size && (victors.some(isP) || isP(s.provinces[province].owner) || victors.length === 0)) {
         const name = provinceName(world, province);
         const text = victors.length ? `${victors.map((n) => s.nations[n].shortName).join(' & ')} win the Battle of ${name}.` : `The Battle of ${name} ends with both sides spent.`;
         s = log(s, { kind: 'battle-end', text, nations: victors, important: false });
@@ -542,8 +544,8 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     s = setOwner(s, province, by, fallsWhole ? (st, ev) => (ev.kind === 'capital' ? st : log(st, ev)) : log, world);
     // optional rule: the nation falls with its capital
     if (wasCapital && s.rules.capitalFalls && s.nations[owner]?.alive) s = capitalFallen(s, world, owner, by, log);
-    if (!wasCapital && (by === player || owner === player))
-      s = log(s, { kind: 'capture', text: `${s.nations[by].shortName} captures ${provinceName(world, province)} from ${s.nations[owner].shortName}.`, nations: [by, owner], important: owner === player });
+    if (!wasCapital && (isP(by) || isP(owner)))
+      s = log(s, { kind: 'capture', text: `${s.nations[by].shortName} captures ${provinceName(world, province)} from ${s.nations[owner].shortName}.`, nations: [by, owner], important: isP(owner) });
   }
 
   // sieges with nobody left besieging lapse; garrisons regrow where no invader stands
@@ -591,7 +593,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       const count = Object.values(s.armies).filter((a) => a.owner === n.id && isFleet(world, a.unitType)).length;
       if (count >= fleetCap(s, world, n.id)) continue;
       s = raiseFleet(s, world, n, port);
-      if (n.id === player) s = log(s, { kind: 'mobilize', text: `A new fleet is launched at ${provinceName(world, port)}.`, nations: [n.id] });
+      if (isP(n.id)) s = log(s, { kind: 'mobilize', text: `A new fleet is launched at ${provinceName(world, port)}.`, nations: [n.id] });
     }
   }
 
@@ -599,13 +601,14 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
   if (s.clock.hours % 24 === 0) s = capitulations(s, world, log);
 
   // 7. victory / defeat
-  if (player && !s.winner) {
+  for (const player of [...humanSet].sort()) {
+    if (s.winner || !s.nations[player]) continue;
     const total = Object.keys(s.provinces).length;
     const share = (provincesOf(s, player).length / total) * 100;
     if (share >= s.rules.victoryPercent) {
       s = { ...s, winner: player };
       s = log(s, { kind: 'victory', text: `Victory! ${s.nations[player].name} controls ${share.toFixed(0)}% of the world.`, nations: [player], important: true });
-    } else if (!s.nations[player].alive && !s.events.some((e) => e.kind === 'defeat')) {
+    } else if (!s.nations[player].alive && !s.events.some((e) => e.kind === 'defeat' && (e.nations?.[0] ?? player) === player)) {
       s = log(s, { kind: 'defeat', text: `Defeat. ${s.nations[player].name} has been conquered.`, nations: [player], important: true });
     }
   }
@@ -662,11 +665,10 @@ export function applyStrike(state: GameState, world: World, fleetId: ArmyId, tar
   }
   s = applyCivilianLosses(s, world, new Map([[target, STRIKE_DEATHS]]));
   const victims = [...new Set([...units.map((u) => u.owner), s.provinces[target].owner])].filter((n) => atWar(s, a.owner, n));
-  const player = s.playerNation;
-  if (player && (a.owner === player || victims.includes(player))) {
+  if (isHuman(s, a.owner) || victims.some((v) => isHuman(s, v))) {
     const what = strike.kind === 'air' ? 'Air strike' : 'Drone strike';
     const sunk = lost.length ? ` ${lost.join(', ')} destroyed.` : '';
-    s = log(s, { kind: 'strike', text: `${what} by ${s.nations[a.owner].shortName} on ${provinceName(world, target)}: ${total.toFixed(1)} strength lost.${sunk}`, nations: [a.owner, ...victims], important: victims.includes(player) });
+    s = log(s, { kind: 'strike', text: `${what} by ${s.nations[a.owner].shortName} on ${provinceName(world, target)}: ${total.toFixed(1)} strength lost.${sunk}`, nations: [a.owner, ...victims], important: victims.some((v) => isHuman(s, v)) });
   }
   return s;
 }

@@ -5,7 +5,7 @@ import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, is
 import { BASE_STRENGTH, fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
 import { nextRandom } from './rng';
-import type { Army, BuildingId, GameState, NationId, ProposalTerms, ProvinceId } from './types';
+import { humansOf, isHuman, type Army, type BuildingId, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import type { World } from './world';
 
 /**
@@ -30,7 +30,7 @@ export function aiTick(state: GameState, world: World, apply: Apply): GameState 
   const ticksPerDay = Math.max(1, Math.round(24 / state.clock.tickHours));
   const slot = Math.floor((state.clock.hours % 24) / state.clock.tickHours);
   const day = Math.floor(state.clock.hours / 24);
-  const ids = Object.keys(state.nations).filter((n) => state.nations[n].alive && n !== state.playerNation).sort();
+  const ids = Object.keys(state.nations).filter((n) => state.nations[n].alive && !isHuman(state, n)).sort();
   let s = state;
   ids.forEach((n, i) => {
     if (i % ticksPerDay !== slot || !s.nations[n]?.alive) return;
@@ -114,12 +114,12 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
 
   // 2) defence: provinces where the enemy is stronger than we are, capital first
   const capital = s.nations[n].capital;
-  // an ally of the player also guards the player's threatened provinces within reach
-  const player = s.playerNation;
-  const playersAlly = !!player && player !== n && allied(s, n, player);
+  // an ally of a player also guards that player's threatened provinces within reach
+  const humanAllies = new Set(humansOf(s).filter((h) => h !== n && allied(s, n, h)));
+  const playersAlly = humanAllies.size > 0;
   const near = (p: ProvinceId) => mine.some((a) => dist(world, a.location, p) <= MAX_TASK_DIST * 0.6);
   const needs = Object.keys(s.provinces)
-    .filter((p) => owner(p) === n || (playersAlly && owner(p) === player && near(p)))
+    .filter((p) => owner(p) === n || (playersAlly && humanAllies.has(owner(p)) && near(p)))
     // covered = our garrison plus most of our armies next door (they can step in); only real gaps draw reinforcements
     .map((p) => {
       // troops at home fight with the home-ground bonus, alongside the local garrison
@@ -184,7 +184,7 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
   };
   // caution is set aside for the player's enemies when we are the player's ally: an ally that agreed
   // to help actually fights (AI-only alliances keep their caution, as in the 1939 "Phoney War")
-  const bold = (o: NationId) => playersAlly && atWar(s, player!, o);
+  const bold = (o: NationId) => [...humanAllies].some((h) => atWar(s, h, o));
   const candidates = [...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || bold(owner(t)) || !outclassed(owner(t))));
   // one front at a time: while an enemy is collapsing (holding under 90% of its land), finish it
   // before opening an offensive against a fresh one (retaking our own land is always allowed)
@@ -371,7 +371,6 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
   const me = s.nations[n];
   const alive = Object.keys(s.nations).filter((x) => s.nations[x].alive && x !== n).sort();
   const power = (x: NationId) => militaryPower(s, world, x);
-  const player = s.playerNation;
   let r: number;
 
   // 1) honour alliances: join an ally that is defending against an aggressor (if not busy elsewhere).
@@ -380,7 +379,7 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
   for (const w of s.wars) {
     const allyDefending = w.defenders.find((d) => d !== n && allied(s, n, d));
     if (!allyDefending || w.attackers.includes(n) || w.defenders.includes(n)) continue;
-    const forPlayer = allyDefending === player;
+    const forPlayer = isHuman(s, allyDefending);
     if (busy && !forPlayer) continue;
     const aggressor = w.attackers[0];
     if (!aggressor || friendly(s, n, aggressor)) continue;
@@ -395,7 +394,7 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
 
   // 2) make peace with AI enemies when both sides want it (the player negotiates in person)
   for (const e of alive) {
-    if (e === player || !atWar(s, n, e)) continue;
+    if (isHuman(s, e) || !atWar(s, n, e)) continue;
     const terms = { type: 'peace' as const, from: n, to: e };
     if (validateTerms(s, terms)) continue;
     if (willingness(s, world, terms, n).score >= ACCEPT_LEAN && willingness(s, world, terms, e).score >= ACCEPT_LEAN) {
@@ -408,7 +407,7 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
   const enemiesOfMe = alive.filter((x) => atWar(s, n, x));
   if (enemiesOfMe.length) {
     for (const m of alive) {
-      if (m === player || allied(s, n, m) || atWar(s, n, m) || cobelligerents(s, n, m)) continue;
+      if (isHuman(s, m) || allied(s, n, m) || atWar(s, n, m) || cobelligerents(s, n, m)) continue;
       if (!enemiesOfMe.some((e) => atWar(s, m, e))) continue;
       const terms = { type: 'alliance' as const, from: n, to: m };
       if (validateTerms(s, terms)) continue;
@@ -441,7 +440,7 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
     const ratio = ourSide / (theirSide + 1);
     // the AI picks on the player only with a clear edge (less of one on hard)
     const d = s.rules.difficulty ?? 'normal';
-    const needed = c === player ? (d === 'easy' ? 2.8 : d === 'hard' ? 1.7 : 2.2) : 1.6;
+    const needed = isHuman(s, c) ? (d === 'easy' ? 2.8 : d === 'hard' ? 1.7 : 2.2) : 1.6;
     if (ratio < needed) continue;
     const score = (ratio - needed) * 10 - rel / 5 - (bound ? 15 : 0) - (s.nations[c].major ? 5 : 0);
     if (!best || score > best.score) best = { target: c, score };
@@ -527,7 +526,7 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
     for (const a of Object.values(s.armies)) if (a.owner === n) for (const r of needsOf(world, a.unitType)) users.set(r, (users.get(r) ?? 0) + 1);
     const want = [...users.keys()].filter((r) => (users.get(r) ?? 0) >= 3 && (!access.has(r) || s.nations[n].short?.includes(r))).sort()[0];
     if (want) {
-      const sellers = Object.keys(s.nations).filter((x) => x !== n && x !== s.playerNation && s.nations[x].alive && !atWar(s, n, x) && getRel(s, n, x) >= -10 && producedBy(s, world, x).has(want)).sort();
+      const sellers = Object.keys(s.nations).filter((x) => x !== n && !isHuman(s, x) && s.nations[x].alive && !atWar(s, n, x) && getRel(s, n, x) >= -10 && producedBy(s, world, x).has(want)).sort();
       for (const x of sellers.slice(0, 6)) {
         const terms = { type: 'trade' as const, from: n, to: x, buy: want, gold: 4 };
         if (validateTerms(s, terms) || willingness(s, world, terms, x).score < ACCEPT_LEAN) continue;

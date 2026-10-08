@@ -153,6 +153,10 @@ export class PgStore implements AccountStore {
   ready() {
     return (this.init ??= this.pool.query(SCHEMA).then(() => undefined));
   }
+  /** The connection pool (multiplayer keeps its running games in the same database). */
+  get db() {
+    return this.pool;
+  }
   async getProfile(id: string) {
     await this.ready();
     const r = await this.pool.query<ProfileRow>('select * from warroom_profiles where id = $1', [id]);

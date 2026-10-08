@@ -11,6 +11,9 @@ import { betaRequired, requireBeta, statusHandler, unlockHandler } from './beta'
 import type { NextFunction, Request, Response } from 'express';
 import { tasks, type AiInfo, type AiRequest, type TaskId } from '../shared/ai/tasks';
 import { config } from './config';
+import { attachMultiplayer } from './multiplayer/socket';
+import { PgRoomStore } from './multiplayer/persist';
+import { getScenario } from '../src/data/scenarios';
 import { QueueRejected } from './llm/queue';
 import { LLMService, TimeoutError } from './llm/service';
 import { ProviderError } from './llm/types';
@@ -140,6 +143,22 @@ if (config.production && existsSync(dist)) {
   app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: dist, headers: { 'Cache-Control': 'no-cache' } }));
 }
 
-app.listen(config.port, () => {
-  console.log(`[server] http://localhost:${config.port}  access=${mode}${accounts ? `(${acc.databaseUrl ? 'postgres' : 'memory'}${acc.dev && !acc.supabaseUrl ? ', dev sign-in' : ''})` : ''}  ai=${llm ? `${llm.provider.id}/${llm.provider.model}` : `unavailable (${llmError})`}`);
+const httpServer = app.listen(config.port, () => {
+  console.log(`[server] http://localhost:${config.port}  multiplayer=${accounts ? 'on' : 'off (needs accounts)'}  access=${mode}${accounts ? `(${acc.databaseUrl ? 'postgres' : 'memory'}${acc.dev && !acc.supabaseUrl ? ', dev sign-in' : ''})` : ''}  ai=${llm ? `${llm.provider.id}/${llm.provider.model}` : `unavailable (${llmError})`}`);
 });
+
+// ---- multiplayer --------------------------------------------------------------------------------
+// players sign in with the same token as the API (approved accounts with a username only)
+if (accounts) {
+  const a = accounts;
+  attachMultiplayer(httpServer, async (token) => {
+    const c = await a.callerFromToken(token);
+    if (!c) return { error: 'Sign in to play online.' };
+    if (c.profile.status !== 'approved') return { error: 'Your account is waiting for approval.' };
+    if (!c.profile.username) return { error: 'Choose a username first.' };
+    return { userId: c.profile.id, username: c.profile.username, admin: c.admin };
+  }, (scenarioId) => {
+    const t = getScenario(scenarioId)?.time;
+    return t ? (t.secondsPerTurn * t.tickHours) / t.turnHours : null;
+  }, store instanceof PgStore ? new PgRoomStore(store.db) : undefined);
+}

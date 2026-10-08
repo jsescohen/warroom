@@ -18,6 +18,7 @@ import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
 import { openEconomy } from './economyPanel';
+import type { OnlineHud } from '../net/onlineGame';
 import { budgetOf } from '../core/economy';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
 import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
@@ -542,7 +543,26 @@ export class Hud {
     );
   }
 
+  private online: OnlineHud | null = null;
+
+  /** Online game: the room's state replaces the speed buttons (the host of a private room may pause). */
+  setOnline(o: OnlineHud) {
+    this.online = o;
+    document.body.classList.add('online-game');
+    o.onChange(() => { this.renderSpeed(); this.renderClock(); });
+    this.renderSpeed();
+    this.renderClock();
+  }
+
   private renderSpeed() {
+    const o = this.online;
+    if (o) {
+      fill(this.speedEl,
+        h('span', { class: 'online-pill', title: 'Online game: the server keeps the time' }, h('i', { class: 'mp-dot on' }), o.label()),
+        o.canPause() ? h('button', { title: o.paused() ? 'Resume the game for everyone' : 'Pause the game for everyone', onclick: () => o.togglePause() }, o.paused() ? '▶' : '❚❚') : null,
+      );
+      return;
+    }
     const speed = this.loop.speed;
     const btn = (label: string, title: string, active: boolean, onclick: () => void) =>
       h('button', { class: active ? 'active' : '', title, onclick }, label);

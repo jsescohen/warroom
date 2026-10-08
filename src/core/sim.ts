@@ -4,7 +4,7 @@ import { diplomacyTick } from './diplomacy';
 import { HISTORY_EVERY_HOURS, recordHistory } from './history';
 import { economyTick } from './economy';
 import { militaryTick } from './military';
-import type { GameEvent, GameState } from './types';
+import { isHuman, type GameEvent, type GameState } from './types';
 import type { World } from './world';
 
 /** Applies a command if it is valid, otherwise returns the state unchanged. */
@@ -36,7 +36,7 @@ function fireScheduled(state: GameState, apply: ApplyFn): GameState {
     for (const action of ev.actions) {
       const actor = action.type === 'declareWar' ? action.attacker : 'system';
       // Never act on the player's behalf: history only happens if the player lets it.
-      if (actor === s.playerNation) continue;
+      if (isHuman(s, actor)) continue;
       const next = apply(s, { action, actor });
       if (next !== s) applied++;
       s = next;

@@ -76,6 +76,19 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'online', label: 'Multiplayer',
+    intro: 'Play against other people on the same map: Multiplayer on the main menu. Every nation nobody picks is led by the AI, as usual.',
+    items: [
+      ['Public rooms', 'Anyone signed in can see them and join, up to the room’s player limit (2 to 16). You can join a game that has already started.'],
+      ['Private rooms', 'Only people with the six-letter code or the invite link can join. Use them to play with friends.'],
+      ['Starting', 'Everyone picks a different nation in the room; the host starts the game.'],
+      ['The clock', 'Time runs steadily for everyone at the room’s pace: there is no pausing or skipping, except that the host of a private room can pause for all.'],
+      ['Other players', 'Nations led by people are marked “Player” in Diplomacy. Messages to them go straight to that person, and they answer your offers themselves.'],
+      ['Leaving', 'Close the tab or go to the menu whenever you like: your nation waits for you, and you rejoin from Multiplayer. Leave the room to hand your nation back to the AI.'],
+      ['Saving', 'Online games are kept on the server, not in your saves. A game nobody has played for two days ends.'],
+    ],
+  },
+  {
     id: 'keys', label: 'Controls',
     items: [
       ['Mouse', 'Drag the map to pan, scroll to zoom. Click a province or counter to inspect it.'],

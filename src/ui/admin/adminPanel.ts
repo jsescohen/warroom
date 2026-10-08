@@ -1,4 +1,7 @@
 import { apiFetch, currentUser } from '../../auth/account';
+import { mp } from '../../net/mpClient';
+import { getScenario } from '../../data/scenarios';
+import type { RoomInfo } from '../../../shared/multiplayer/protocol';
 import { scenarios } from '../../data/scenarios';
 import type { SaveMeta } from '../../game/saves';
 import { consoleScreen } from '../console';
@@ -200,7 +203,10 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
     ];
   };
 
+  let liveCleanup: (() => void) | null = null;
   const render = () => {
+    liveCleanup?.();
+    liveCleanup = null;
     const count = (st: AdminUser['status']) => users.filter((u) => u.status === st).length;
     const fresh = feedback.filter((f) => f.status === 'new').length;
     const labels: [Tab, string][] = [
@@ -219,7 +225,22 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
     }
     if (tab === 'stats') { fill(list, ...statsView()); return; }
     if (tab === 'games') {
-      fill(list, h('p', { class: 'dim' }, 'Live multiplayer games will appear here, ready to spectate, once multiplayer is added. For now you can open any player’s saved games from the Players tab.'));
+      const client = mp();
+      const show = (rooms: RoomInfo[]) => {
+        if (tab !== 'games') return;
+        fill(list, ...(rooms.length ? rooms.map((r) => h('div', { class: 'admin-row' },
+          h('div', null,
+            h('strong', null, r.name),
+            h('div', { class: 'dim' }, `${getScenario(r.scenarioId)?.name ?? r.scenarioId} · ${r.visibility} · code ${r.code} · ${r.status}`),
+            h('div', { class: 'dim' }, r.players.map((p) => `${p.connected ? '●' : '○'} ${p.username}${p.nation ? ` (${p.nation})` : ''}`).join('  ') || 'nobody')),
+          r.status === 'lobby' ? h('span', { class: 'dim' }, 'Not started') : h('button', { class: 'btn', onclick: () => (location.search = `?watch=${encodeURIComponent(r.id)}`) }, 'Watch live'),
+        )) : [h('p', { class: 'dim' }, 'No multiplayer games right now.')]));
+      };
+      fill(list, h('p', { class: 'dim' }, client.online ? 'Loading games…' : 'Connecting to the game server…'));
+      const offRooms = client.on('rooms', show);
+      const offStatus = client.on('status', (on) => { if (on) client.adminRooms(); });
+      liveCleanup = () => { offRooms(); offStatus(); };
+      client.adminRooms();
       return;
     }
     const shown = users.filter((u) => u.status === tab);

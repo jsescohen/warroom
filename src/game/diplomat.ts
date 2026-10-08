@@ -28,7 +28,8 @@ export class Diplomat {
     const player = this.store.state.playerNation;
     if (!player || this.busy.has(ai)) return { error: 'Busy' };
     if (text.trim()) {
-      const r = this.store.dispatch({ type: 'chat', with: ai, text }, player);
+      // online, the leader must see the message before answering it: wait until it is applied
+      const r = await this.store.dispatchSync({ type: 'chat', with: ai, text }, player);
       if (!r.ok) return { error: r.error };
     }
     this.busy.add(ai);
@@ -57,7 +58,7 @@ export class Diplomat {
       let offerId: string | undefined;
       if (data?.agreementProposed && data.agreementType !== 'none' && !accepted) {
         const terms = this.termsFromAi(ai, player, data.agreementType, data.terms);
-        if (terms && this.aiWouldOffer(terms)) offerId = this.propose(terms);
+        if (terms && this.aiWouldOffer(terms)) offerId = await this.propose(terms);
       }
 
       const leader = leaderOf(this.scenario, this.store.state, ai);
@@ -83,7 +84,7 @@ export class Diplomat {
       const res = await runAiTask({ task: 'diplomacy', system, prompt, priority: 'ai', actor: init.from });
       if (!res.valid && 'skipped' in res && res.skipped && !init.terms && init.kind !== 'war-message') return false;
       let offerId: string | undefined;
-      if (init.terms && validateTerms(this.store.state, init.terms) === null) offerId = this.propose(init.terms);
+      if (init.terms && validateTerms(this.store.state, init.terms) === null) offerId = await this.propose(init.terms);
       const leader = leaderOf(this.scenario, this.store.state, init.from);
       const text = (res.valid && res.data.reply) || initiativeTemplate(init, leader.name, s);
       this.as(init.from, { type: 'chat', with: player, text, proposal: offerId });
@@ -100,8 +101,8 @@ export class Diplomat {
     return this.store.dispatch(action, actor).ok;
   }
 
-  private propose(terms: ProposalTerms): string | undefined {
-    if (!this.as(terms.from, { type: 'propose', terms })) return undefined;
+  private async propose(terms: ProposalTerms): Promise<string | undefined> {
+    if (!(await this.store.dispatchSync({ type: 'propose', terms }, terms.from)).ok) return undefined;
     return [...this.store.state.proposals].reverse().find((p) => p.from === terms.from && p.to === terms.to)?.id;
   }
 

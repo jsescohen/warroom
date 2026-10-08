@@ -14,6 +14,8 @@ export class GameSession {
   private lastAutosaveDay: number;
   slotId: string | null;
   slotName: string | null = null;
+  /** Online games live on the server: no local saves, and leaving goes back to the multiplayer screen. */
+  online = false;
 
   constructor(readonly store: GameStore, readonly scenario: ScenarioDef, slotId: string | null, private notify: (text: string) => void) {
     this.slotId = slotId && slotId !== AUTOSAVE_ID ? slotId : null;
@@ -39,12 +41,13 @@ export class GameSession {
   }
 
   get dirty() {
-    return !this.store.readOnly && this.store.state !== this.savedState;
+    return !this.store.readOnly && !this.online && this.store.state !== this.savedState;
   }
 
   /** Saves to the current slot (or a new one), optionally under a new name. */
   async save(name?: string, asNew = false): Promise<boolean> {
     if (this.store.readOnly) { this.notify('Spectating: this game cannot be saved.'); return false; }
+    if (this.online) { this.notify('Online games are kept on the server while their players are in the room.'); return false; }
     try {
       const rec = makeSave(this.store.state, this.scenario, { id: asNew ? undefined : this.slotId ?? undefined, name: name ?? this.slotName ?? undefined });
       await putSave(rec);
@@ -62,7 +65,7 @@ export class GameSession {
   }
 
   async autosave(): Promise<void> {
-    if (!this.store.state.playerNation || this.store.readOnly) return;
+    if (!this.store.state.playerNation || this.store.readOnly || this.online) return;
     try {
       await putSave(makeSave(this.store.state, this.scenario, { id: AUTOSAVE_ID, name: `Autosave — ${this.scenario.name}`, auto: true }));
     } catch {
@@ -81,6 +84,6 @@ export class GameSession {
   /** Leaves to the main menu (autosaving first when enabled). */
   async quitToMenu() {
     if (getSettings().autosave !== 'off' && this.dirty) await this.autosave();
-    location.href = this.store.readOnly ? `${location.pathname}?admin` : location.pathname;
+    location.href = this.store.readOnly ? `${location.pathname}?admin` : this.online ? `${location.pathname}?mp` : location.pathname;
   }
 }

@@ -4,6 +4,10 @@ import './ui/mobile.css';
 import { audio } from './audio/audio';
 import type { ScenarioDef } from './core/scenario';
 import { createInitialState } from './core/state';
+import { mp, type MpClient } from './net/mpClient';
+import { attachOnline } from './net/onlineGame';
+import { showMultiplayer } from './ui/menus/multiplayer';
+import type { RoomInfo } from '../shared/multiplayer/protocol';
 import { initEconomy } from './core/economy';
 import { GameStore } from './core/store';
 import type { GameState } from './core/types';
@@ -47,6 +51,7 @@ const go = {
   era: (id: string) => (location.search = `?era=${encodeURIComponent(id)}`),
   load: (id: string) => (location.search = `?load=${encodeURIComponent(id)}`),
   admin: () => (location.search = '?admin'),
+  multiplayer: () => (location.search = '?mp'),
   spectate: (user: string, save: string) => (location.search = `?spectate=${encodeURIComponent(save)}&user=${encodeURIComponent(user)}`),
 };
 
@@ -76,11 +81,13 @@ async function boot() {
   if (q.has('load')) return loadGame(root, q.get('load')!);
   if (q.has('spectate')) return spectate(root, q.get('user') ?? '', q.get('spectate')!);
   if (q.has('feedback')) return spectate(root, null, q.get('feedback')!);
+  if (q.has('watch')) return watchOnline(root, q.get('watch')!);
+  if (q.has('mp') || q.has('room')) return showMultiplayer(root, { menu: go.menu, enter: (room) => void enterOnline(root, room) });
   if (q.has('admin')) return showAdminPanel(root, { menu: go.menu, spectate: go.spectate, spectateFeedback: (id) => (location.search = `?feedback=${encodeURIComponent(id)}`) });
   const scenario = getScenario(q.get('era') ?? '');
   if (scenario) return startGame(root, scenario, null, null);
   if (q.has('new')) return showEraSelect(root, (sc) => go.era(sc.id), go.menu);
-  return showMainMenu(root, { newGame: go.newGame, load: go.load, admin: go.admin });
+  return showMainMenu(root, { newGame: go.newGame, load: go.load, admin: go.admin, multiplayer: go.multiplayer });
 }
 
 async function loadGame(root: HTMLElement, id: string) {
@@ -124,7 +131,32 @@ function migrateSave(s: GameState, world: World): GameState {
   return initEconomy(fixed, world);
 }
 
-async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameState | null, saveId: string | null, readOnly = false) {
+/** Admins: watch a multiplayer game live, read-only. */
+function watchOnline(root: HTMLElement, roomId: string) {
+  const client = mp();
+  root.replaceChildren(h('div', { class: 'loading' }, 'Joining the game as a spectator…'));
+  const fail = (e: string) => root.replaceChildren(h('div', { class: 'loading' }, h('div', null, e, h('div', null, h('button', { class: 'btn', onclick: go.admin }, 'Admin panel')))));
+  const offErr = client.on('error', fail);
+  const off = client.on('begin', (room) => {
+    off(); offErr();
+    const scenario = getScenario(room.scenarioId);
+    if (!scenario) return fail('Unknown era');
+    root.replaceChildren();
+    void startGame(root, scenario, null, null, true, client);
+  });
+  client.watch(roomId);
+}
+
+/** Opens a multiplayer game (the room has started, or the player rejoins one in progress). */
+async function enterOnline(root: HTMLElement, room: RoomInfo) {
+  const scenario = getScenario(room.scenarioId);
+  if (!scenario) return;
+  if (location.search !== '?mp') history.replaceState(null, '', '?mp');
+  root.replaceChildren();
+  return startGame(root, scenario, null, null, false, mp());
+}
+
+async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameState | null, saveId: string | null, readOnly = false, online: MpClient | null = null) {
   const theme = getTheme(scenario.theme);
   applyTheme(theme);
   audio.setTheme(scenario.theme);
@@ -134,7 +166,7 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   const bar = h('i');
   const barLabel = h('span', null, 'Loading the map…');
   const loading = h('div', { class: 'loading era-loading' },
-    h('div', null, h('div', { class: 'eyebrow' }, saved ? 'Loading saved game' : 'New game'), h('h2', null, scenario.name), h('p', { class: 'dim' }, scenario.subtitle),
+    h('div', null, h('div', { class: 'eyebrow' }, online ? 'Online game' : saved ? 'Loading saved game' : 'New game'), h('h2', null, scenario.name), h('p', { class: 'dim' }, scenario.subtitle),
       h('div', { class: 'load-bar' }, bar), barLabel));
   root.append(stage, loading);
 
@@ -180,14 +212,18 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   const loop = new GameLoop(store, scenario.time);
   let hud: Hud | null = null;
   const session = new GameSession(store, scenario, saveId, (text) => hud?.notify(text));
+  // online: the server runs the clock and orders go through it; nothing is saved locally
+  const onlineHud = online ? attachOnline(store, loop, online, (text) => hud?.notify(text)) : null;
+  if (online) session.online = true;
   hud = new Hud(root, store, map, scenario, renderer, loop, session, go.load);
-  if (!store.state.playerNation) root.append(new NationPicker(store, scenario, renderer).el);
+  if (onlineHud) hud.setOnline(onlineHud);
+  if (!store.state.playerNation && !online) root.append(new NationPicker(store, scenario, renderer).el);
   new EndScreen(store, () => void session.quitToMenu(), go.newGame);
   setErrorContext(() => ({ scenarioId: scenario.id, date: formatDate(store.state.clock), nation: store.state.playerNation, spectating: readOnly }));
   trackPlayStats(store, scenario);
   new AchievementTracker(store, scenario, (a) => hud?.celebrate(a.name, a.description));
   // first new game: the walkthrough starts once a nation is chosen
-  if (!readOnly && !saved && !getSettings().tutorialDone) {
+  if (!readOnly && !saved && !online && !getSettings().tutorialDone) {
     const startTutorial = () => {
       const t = new Tutorial(store, loop, () => hud!.currentSelection);
       hud!.onSelectionChange = () => t.check();

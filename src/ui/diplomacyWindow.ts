@@ -6,7 +6,7 @@ import { allied, atWar, getRelation } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import { formatDate, formatShortDate } from '../core/time';
-import { relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms } from '../core/types';
+import { isHuman, relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms } from '../core/types';
 import { treatyName } from '../core/war';
 import type { Diplomat } from '../game/diplomat';
 import { fill, h, swatch } from './dom';
@@ -192,7 +192,7 @@ export class DiplomacyWindow {
       const unread = this.unread(s, n);
       rows.push(h('button', { class: `diplo-nation${n === this.current ? ' active' : ''}`, onclick: () => { this.current = n; this.pickGive.clear(); this.pickTake.clear(); this.renderExtra(); this.render(); this.input.focus(); } },
         swatch(nation.color),
-        h('span', { class: 'diplo-nation-name' }, nation.shortName),
+        h('span', { class: 'diplo-nation-name' }, nation.shortName, isHuman(s, n) ? h('span', { class: 'chip player-chip', title: 'Led by another player' }, 'Player') : null),
         unread ? h('span', { class: 'badge' }, String(unread)) : null,
         h('span', { class: 'diplo-rel', style: `color:${relationLabel(rel).color}` }, rel > 0 ? `+${rel}` : String(rel)),
       ));
@@ -370,7 +370,15 @@ export class DiplomacyWindow {
     this.composeType.value = 'message';
     this.renderExtra();
     // the player's line carries the proposal card
-    if (proposalId) this.store.dispatch({ type: 'chat', with: n, text, proposal: proposalId }, me);
+    if (proposalId) await this.store.dispatchSync({ type: 'chat', with: n, text, proposal: proposalId }, me);
+    // another player: no AI writes for them; they read it and answer themselves
+    if (isHuman(this.store.state, n)) {
+      if (!proposalId) {
+        const r = await this.store.dispatchSync({ type: 'chat', with: n, text }, me);
+        if (!r.ok) this.hooks.toast(r.error, 'alert');
+      }
+      return this.render();
+    }
     await this.awaitReply(n, this.diplomat.talk(n, proposalId ? '' : text));
   }
 
@@ -396,7 +404,7 @@ export class DiplomacyWindow {
     const me = this.store.state.playerNation;
     if (!me) return false;
     if (!(await this.hooks.confirm(action))) return false;
-    const r = this.store.dispatch(action, me);
+    const r = await this.store.dispatchSync(action, me);
     if (!r.ok) this.hooks.toast(r.error, 'alert');
     return r.ok;
   }

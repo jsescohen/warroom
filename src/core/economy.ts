@@ -1,7 +1,7 @@
 import { armyCap, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, raiseUnitOfType } from './military';
 import { basePop, POP_FLOOR } from './population';
 import { atWar, provincesOf } from './queries';
-import type { Army, BuildingId, GameEvent, GameState, NationId, ProvinceId, Treaty } from './types';
+import { humansOf, isHuman, type Army, type BuildingId, type GameEvent, type GameState, type NationId, type ProvinceId, type Treaty } from './types';
 import type { World } from './world';
 
 /**
@@ -46,7 +46,7 @@ type Logger = (s: GameState, ev: Omit<GameEvent, 'id' | 'at'>) => GameState;
 
 /** AI nations play with more (hard) or less (easy) money and manpower than the player. */
 export function difficultyMult(s: GameState, n: NationId): number {
-  if (n === s.playerNation) return 1;
+  if (isHuman(s, n)) return 1;
   const d = s.rules.difficulty ?? 'normal';
   return d === 'easy' ? 0.8 : d === 'hard' ? 1.25 : 1;
 }
@@ -292,7 +292,7 @@ export function economyTick(state: GameState, world: World, log: Logger): GameSt
   const day = state.clock.hours / 24;
   if (state.clock.hours % 24 !== 0 || day <= 0 || day % ECONOMY_EVERY_DAYS !== 0) return state;
   let s = state;
-  const player = s.playerNation;
+  const humans = humansOf(s);
   const detailed = s.rules.economy === 'detailed';
   const prodCache = new Map<NationId, Map<string, number>>();
   const produced = (n: NationId) => {
@@ -301,7 +301,7 @@ export function economyTick(state: GameState, world: World, log: Logger): GameSt
   };
   const nations = { ...s.nations };
   const armies = { ...s.armies };
-  let deserted = false;
+  const deserted: NationId[] = [];
 
   // trade routes between nations now at war, or with a fallen party, are closed
   const dead = (t: Treaty) => t.parties.some((p) => !s.nations[p]?.alive) || atWar(s, t.parties[0], t.parties[1]);
@@ -315,7 +315,7 @@ export function economyTick(state: GameState, world: World, log: Logger): GameSt
     // an empty treasury cannot pay the troops: some desert
     if (treasury < 0) {
       for (const a of Object.values(armies)) if (a.owner === id) armies[a.id] = { ...a, strength: Math.max(0.6, a.strength - a.maxStrength * 0.1) };
-      if (id === player) deserted = true;
+      if (humans.includes(id)) deserted.push(id);
       treasury = Math.max(treasury, -50);
     }
     nations[id] = { ...n, treasury: Math.round(treasury * 10) / 10 };
@@ -360,10 +360,11 @@ export function economyTick(state: GameState, world: World, log: Logger): GameSt
   }
 
   s = { ...s, nations, armies };
-  if (deserted) s = log(s, { kind: 'economy', text: 'The treasury is empty: unpaid troops are deserting. Disband armies or find money.', nations: [player!], important: true });
-  if (detailed && player && s.nations[player]?.alive) {
-    const fresh = (s.nations[player].short ?? []).filter((r) => !(state.nations[player]?.short ?? []).includes(r));
-    if (fresh.length) s = log(s, { kind: 'economy', text: `Out of ${fresh.map((r) => world.resources[r]?.name ?? r).join(' and ')}: units that need it fight at three quarters strength and cannot refit.`, nations: [player], important: true });
+  for (const h of deserted) s = log(s, { kind: 'economy', text: `${s.nations[h].shortName}: the treasury is empty and unpaid troops are deserting.`, nations: [h], important: true });
+  for (const h of detailed ? humans : []) {
+    if (!s.nations[h]?.alive) continue;
+    const fresh = (s.nations[h].short ?? []).filter((r) => !(state.nations[h]?.short ?? []).includes(r));
+    if (fresh.length) s = log(s, { kind: 'economy', text: `${s.nations[h].shortName} is out of ${fresh.map((r) => world.resources[r]?.name ?? r).join(' and ')}: units that need it fight at three quarters strength and cannot refit.`, nations: [h], important: true });
   }
 
   // civilians slowly return and recover

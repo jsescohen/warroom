@@ -634,3 +634,9 @@ body.targeting canvas { cursor: crosshair !important; }
 .diplo-gold-label { display: inline-flex; align-items: center; }
 
 .diplo-readall { margin-left: auto; margin-right: 8px; }
+
+/* ---- online games ---- */
+.online-pill { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; height: 34px; font-family: var(--font-display); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.mp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); display: inline-block; flex: none; }
+.mp-dot.on { background: #4caf6a; box-shadow: 0 0 6px #4caf6a; }
+.chip.player-chip { margin-left: 6px; font-size: 10px; padding: 0 5px; }

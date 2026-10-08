@@ -16,6 +16,8 @@ export { logEvent } from './events';
  */
 export type Action =
   | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode }
+  /** Multiplayer (from the server): the nations led by people, and the room's rules. */
+  | { type: 'setPlayers'; nations: NationId[]; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode }
   /** Buy a new unit at a barracks (land) or airfield (air). */
   | { type: 'recruit'; province: ProvinceId; unitType: string }
   | { type: 'build'; province: ProvinceId; building: BuildingId }
@@ -75,6 +77,9 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       if (action.difficulty && !DIFFICULTIES.includes(action.difficulty)) return 'Unknown difficulty';
       if (action.economy && action.economy !== 'simple' && action.economy !== 'detailed') return 'Unknown economy';
       return null;
+    case 'setPlayers':
+      if (actor !== 'system') return 'Only the server sets the players';
+      return Array.isArray(action.nations) && action.nations.every((n) => typeof n === 'string') ? null : 'Bad player list';
     case 'recruit':
       return actor === 'system' ? 'Only a nation can recruit' : recruitError(state, world, actor, action.province, action.unitType);
     case 'build':
@@ -172,6 +177,26 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
       return logEvent(s, 'player', `You lead ${state.nations[action.nation].name}.`, {
         nations: [action.nation],
       });
+    }
+
+    case 'setPlayers': {
+      const nations = [...new Set(action.nations.filter((n) => state.nations[n]))].sort();
+      const before = new Set(state.humans ?? []);
+      let s: GameState = {
+        ...state,
+        playerNation: null,
+        humans: nations,
+        rules: {
+          ...state.rules,
+          difficulty: action.difficulty ?? state.rules.difficulty ?? 'normal',
+          capitalFalls: action.capitalFalls ?? state.rules.capitalFalls,
+          economy: action.economy ?? state.rules.economy ?? 'simple',
+        },
+      };
+      if (s.rules.economy === 'detailed') s = initStocks(s, world);
+      for (const n of nations) if (!before.has(n)) s = logEvent(s, 'player', `${s.nations[n].name} is now led by a player.`, { nations: [n] });
+      for (const n of before) if (!nations.includes(n) && s.nations[n]) s = logEvent(s, 'player', `${s.nations[n].name} is back in the hands of its AI leader.`, { nations: [n] });
+      return s;
     }
 
     case 'recruit':
