@@ -1,6 +1,7 @@
 import { audio } from '../../audio/audio';
 import { scenarios } from '../../data/scenarios';
-import { deleteSave, exportSave, getSave, importSave, listSaves, putSave, type SaveMeta } from '../../game/saves';
+import { cloudSaves } from '../../auth/account';
+import { cloudSaveStore, deleteSave, exportSave, getSave, importSave, listSaves, localSaves, putSave, type SaveMeta } from '../../game/saves';
 import { fill, h } from '../dom';
 import { confirmDialog } from '../modal';
 import { openPanel } from './shell';
@@ -32,7 +33,36 @@ export function openLoadScreen(onLoad: (id: string) => void) {
     }
     file.value = '';
   });
-  fill(panel.body, list, h('div', { class: 'setting-actions' }, h('button', { class: 'btn', onclick: () => file.click() }, 'Import a save file…'), file), status);
+  // signed in: saves made in this browser before signing in can be moved to the account
+  const upload = h('button', { class: 'btn', style: 'display:none', title: 'Copies them to your account so every device sees them' }) as HTMLButtonElement;
+  const offerUpload = async () => {
+    if (!cloudSaves()) return;
+    const local = await localSaves.list().catch(() => []);
+    upload.style.display = local.length ? '' : 'none';
+    upload.textContent = `Upload ${local.length} save${local.length === 1 ? '' : 's'} from this browser`;
+    upload.onclick = async () => {
+      upload.disabled = true;
+      let done = 0;
+      try {
+        for (const m of local) {
+          const rec = await localSaves.get(m.id);
+          if (!rec) continue;
+          await cloudSaveStore.put(rec);
+          await localSaves.delete(m.id);
+          done++;
+        }
+        status.textContent = `Uploaded ${done} save${done === 1 ? '' : 's'} to your account.`;
+      } catch (e) {
+        status.textContent = `Uploaded ${done}; then: ${(e as Error).message}`;
+        audio.play('error');
+      }
+      upload.disabled = false;
+      void refresh();
+      void offerUpload();
+    };
+  };
+  fill(panel.body, list, h('div', { class: 'setting-actions' }, h('button', { class: 'btn', onclick: () => file.click() }, 'Import a save file…'), upload, file), status);
+  void offerUpload();
 
   const row = (m: SaveMeta) => {
     const theme = scenarios.find((s) => s.id === m.scenarioId)?.theme ?? 'sepia';

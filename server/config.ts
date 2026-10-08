@@ -30,6 +30,20 @@ export const config = {
     /** Signs the unlock cookie. Defaults to a value derived from the codes. */
     secret: env('BETA_SECRET', `warroom:${betaCodes.join(',')}`),
   },
+  accounts: {
+    /** Supabase project (Settings → API): sign-in with Google / Discord happens through it. */
+    supabaseUrl: env('SUPABASE_URL'),
+    /** The public "anon" key: safe to show to browsers (it only allows signing in). */
+    supabaseAnonKey: env('SUPABASE_ANON_KEY'),
+    /** Postgres connection string for accounts and cloud saves (Supabase → Connect → Session pooler). */
+    databaseUrl: env('DATABASE_URL'),
+    /** Emails of admin accounts: always approved, can approve others and open the admin panel. */
+    admins: env('ADMIN_EMAILS').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    /** Sign-in buttons to show (each must be enabled in Supabase → Authentication → Providers). */
+    providers: env('AUTH_PROVIDERS', 'google,discord').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    /** Development only: fake sign-in by email, to try accounts without a Supabase project. */
+    dev: !production && env('AUTH_DEV') === 'true',
+  },
   provider,
   /** Generic override; otherwise the provider-specific *_MODEL variable is used. */
   model: env('LLM_MODEL'),

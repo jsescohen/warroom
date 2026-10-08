@@ -68,8 +68,10 @@ export class Hud {
       h('button', { title: 'Zoom out', onclick: () => this.zoomBy(1 / 1.6) }, '−'),
       h('button', { title: 'Show whole map', onclick: () => renderer.camera.flyTo(map.width / 2, map.height / 2, renderer.camera.minZoom) }, '⤢'),
     );
+    const spectating = store.readOnly;
+    if (spectating) this.diploBtn.style.display = 'none';
     this.topbar.append(
-      h('div', null, h('div', { class: 'title' }, scenario.name, h('span', { class: 'beta-badge small' }, 'Beta')), h('div', { class: 'subtitle' }, scenario.subtitle)),
+      h('div', null, h('div', { class: 'title' }, scenario.name, h('span', { class: 'beta-badge small' }, spectating ? 'Spectating' : 'Beta')), h('div', { class: 'subtitle' }, scenario.subtitle)),
       this.playerEl,
       this.aiStatus,
       this.diploBtn,
@@ -103,7 +105,7 @@ export class Hud {
       },
     });
     this.diploBtn.addEventListener('click', () => this.diplo.open());
-    new DiplomacyDirector(store, diplomat, () => getSettings().aiMessages, (from) => {
+    if (!spectating) new DiplomacyDirector(store, diplomat, () => getSettings().aiMessages, (from) => {
       audio.play('message');
       const s = this.state;
       const leader = leaderOf(scenario, s, from).name.replace(/^the /, 'The ');
@@ -121,7 +123,7 @@ export class Hud {
     renderer.on('army', (id) => { this.select(id ? { kind: 'army', id } : null); if (id) audio.play('select'); });
     // Drag one of your counters: the route follows the cursor, releasing gives the order.
     renderer.armyDrag = {
-      canDrag: (id) => !!this.state.playerNation && this.state.armies[id]?.owner === this.state.playerNation,
+      canDrag: (id) => !store.readOnly && !!this.state.playerNation && this.state.armies[id]?.owner === this.state.playerNation,
       move: (id, province, at) => {
         if (this.selection?.kind !== 'army' || this.selection.id !== id) { this.select({ kind: 'army', id }); audio.play('pickup'); }
         this.hovered = province;

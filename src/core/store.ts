@@ -14,6 +14,9 @@ export class GameStore {
   private batchDepth = 0;
   private batchStart: GameState | null = null;
 
+  /** Spectating: only the simulation itself may act (time runs, nobody gives orders). */
+  readOnly = false;
+
   constructor(private _state: GameState, readonly world: World) {}
 
   get state(): GameState {
@@ -22,6 +25,7 @@ export class GameStore {
 
   dispatch(action: Action, actor: Actor): { ok: true } | { ok: false; error: string } {
     const cmd: Command = { action, actor };
+    if (this.readOnly && actor !== 'system') return { ok: false, error: 'You are spectating: this game is read-only.' };
     const error = validate(this._state, cmd, this.world);
     if (error) return { ok: false, error };
     const prev = this._state;

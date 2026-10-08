@@ -1,3 +1,4 @@
+import { apiFetch } from '../auth/account';
 import { tasks, type AiInfo, type AiRequest, type AiResponse, type TaskId } from '../../shared/ai/tasks';
 
 export type AiOutcome<T extends TaskId> = AiResponse<T> | { data: AiResponse<T>['data']; valid: false; error: string; skipped?: boolean };
@@ -9,7 +10,7 @@ export type AiOutcome<T extends TaskId> = AiResponse<T> | { data: AiResponse<T>[
 export async function runAiTask<T extends TaskId>(req: AiRequest<T>): Promise<AiOutcome<T>> {
   const fallback = tasks[req.task].fallback as AiResponse<T>['data'];
   try {
-    const res = await fetch('/api/ai/task', {
+    const res = await apiFetch('/api/ai/task', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
@@ -25,7 +26,7 @@ export async function runAiTask<T extends TaskId>(req: AiRequest<T>): Promise<Ai
 
 export async function getAiInfo(): Promise<AiInfo | { error: string }> {
   try {
-    const res = await fetch('/api/ai/info');
+    const res = await apiFetch('/api/ai/info');
     const body = await res.json();
     return res.ok ? body : { error: body.error ?? `HTTP ${res.status}` };
   } catch (e) {

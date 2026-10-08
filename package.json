@@ -22,17 +22,20 @@
     "start": "node --env-file-if-exists=.env --import tsx server/index.ts --production"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "express": "^5.2.1",
+    "pg": "^8.23.1",
     "pixi.js": "^8.22.0",
     "topojson-client": "^3.1.0",
-    "zod": "^4.6.5",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-geo": "^3.1.1",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
+    "@types/pg": "^8.23.1",
     "@types/topojson-client": "^3.1.5",
     "@types/topojson-server": "^3.0.4",
     "@types/topojson-specification": "^1.0.5",

@@ -1,5 +1,6 @@
 import { feature } from 'topojson-client';
 import type { ProvinceMeta, UnitTypeDef } from '../core/scenario';
+import { apiFetch } from '../auth/account';
 import { buildWorld, type World } from '../core/world';
 
 /** Static, read-only map geometry. Never stored in GameState. */
@@ -48,7 +49,7 @@ interface MapFile {
 }
 
 export async function loadMap(url: string): Promise<MapData> {
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) throw new Error(`Failed to load map ${url}: ${res.status}`);
   return parseMap(url, (await res.json()) as MapFile);
 }

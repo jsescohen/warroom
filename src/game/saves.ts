@@ -1,11 +1,13 @@
+import { apiFetch, cloudSaves } from '../auth/account';
 import type { ScenarioDef } from '../core/scenario';
 import { formatDate } from '../core/time';
 import type { GameState } from '../core/types';
 
 /**
  * Saved games. A save is the GameState plus a little metadata; the map and world are rebuilt
- * from the scenario on load. Stored in IndexedDB (a save is ~120 KB, too big to keep many in
- * localStorage) and exportable as a .json file.
+ * from the scenario on load. Signed-in players keep them in the cloud (their account, any device);
+ * otherwise they live in this browser's IndexedDB (a save is ~120 KB, too big for localStorage).
+ * Either way they can be exported as a .json file.
  */
 
 export const SAVE_FORMAT = 1;
@@ -90,16 +92,48 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   }
 }
 
-export const putSave = (rec: SaveRecord) => tx('readwrite', (s) => s.put(rec)).then(() => metaOf(rec));
-export const getSave = (id: string) => tx<SaveRecord | undefined>('readonly', (s) => s.get(id));
-export const deleteSave = (id: string) => tx('readwrite', (s) => s.delete(id)).then(() => undefined);
-export const clearSaves = () => tx('readwrite', (s) => s.clear()).then(() => undefined);
+/** Saves kept in this browser (also used to upload them to an account). */
+export const localSaves = {
+  put: (rec: SaveRecord) => tx('readwrite', (s) => s.put(rec)).then(() => metaOf(rec)),
+  get: (id: string) => tx<SaveRecord | undefined>('readonly', (s) => s.get(id)),
+  delete: (id: string) => tx('readwrite', (s) => s.delete(id)).then(() => undefined),
+  clear: () => tx('readwrite', (s) => s.clear()).then(() => undefined),
+  async list(): Promise<SaveMeta[]> {
+    const all = await tx<SaveRecord[]>('readonly', (s) => s.getAll());
+    return all.map(metaOf).sort((a, b) => b.savedAt - a.savedAt);
+  },
+};
 
-/** All saves, newest first (metadata only). */
-export async function listSaves(): Promise<SaveMeta[]> {
-  const all = await tx<SaveRecord[]>('readonly', (s) => s.getAll());
-  return all.map(metaOf).sort((a, b) => b.savedAt - a.savedAt);
+// ---- cloud storage (signed-in accounts) ---------------------------------------------------------
+
+async function cloud<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error ?? `The save server answered HTTP ${res.status}`);
+  return body as T;
 }
+const savePath = (id: string) => `/api/saves/${encodeURIComponent(id)}`;
+
+export const cloudSaveStore = {
+  put: (rec: SaveRecord) => cloud<SaveMeta>(savePath(rec.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec) }),
+  async get(id: string): Promise<SaveRecord | undefined> {
+    const res = await apiFetch(savePath(id));
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
+    return res.json();
+  },
+  delete: (id: string) => cloud(savePath(id), { method: 'DELETE' }).then(() => undefined),
+  clear: () => cloud('/api/saves', { method: 'DELETE' }).then(() => undefined),
+  list: () => cloud<SaveMeta[]>('/api/saves'),
+};
+
+const store = () => (cloudSaves() ? cloudSaveStore : localSaves);
+export const putSave = (rec: SaveRecord) => store().put(rec);
+export const getSave = (id: string) => store().get(id);
+export const deleteSave = (id: string) => store().delete(id);
+export const clearSaves = () => store().clear();
+/** All saves, newest first (metadata only). */
+export const listSaves = () => store().list();
 
 // ---- files --------------------------------------------------------------------------------------
 

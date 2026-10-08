@@ -26,11 +26,12 @@ export class GameSession {
   }
 
   get dirty() {
-    return this.store.state !== this.savedState;
+    return !this.store.readOnly && this.store.state !== this.savedState;
   }
 
   /** Saves to the current slot (or a new one), optionally under a new name. */
   async save(name?: string, asNew = false): Promise<boolean> {
+    if (this.store.readOnly) { this.notify('Spectating: this game cannot be saved.'); return false; }
     try {
       const rec = makeSave(this.store.state, this.scenario, { id: asNew ? undefined : this.slotId ?? undefined, name: name ?? this.slotName ?? undefined });
       await putSave(rec);
@@ -48,7 +49,7 @@ export class GameSession {
   }
 
   async autosave(): Promise<void> {
-    if (!this.store.state.playerNation) return;
+    if (!this.store.state.playerNation || this.store.readOnly) return;
     try {
       await putSave(makeSave(this.store.state, this.scenario, { id: AUTOSAVE_ID, name: `Autosave — ${this.scenario.name}`, auto: true }));
     } catch {
@@ -67,6 +68,6 @@ export class GameSession {
   /** Leaves to the main menu (autosaving first when enabled). */
   async quitToMenu() {
     if (getSettings().autosave !== 'off' && this.dirty) await this.autosave();
-    location.href = location.pathname;
+    location.href = this.store.readOnly ? `${location.pathname}?admin` : location.pathname;
   }
 }
