@@ -9,7 +9,7 @@ import { getSettings, onSettingsChange, type Settings } from '../ui/settings';
 
 export type Sfx =
   | 'click' | 'open' | 'close' | 'select' | 'pickup' | 'order' | 'error'
-  | 'war' | 'battle' | 'capture' | 'capital' | 'loss' | 'message' | 'signed' | 'alert'
+  | 'war' | 'battle' | 'strike' | 'capture' | 'capital' | 'loss' | 'message' | 'signed' | 'alert'
   | 'pause' | 'resume' | 'save' | 'victory' | 'defeat';
 
 class AudioEngine {
@@ -236,6 +236,12 @@ const RECIPES: Record<Sfx, (k: Kit, theme: ThemeId) => void> = {
     k.tone(70, 0, 0.6, { gain: 0.45, slideTo: 35 });
     k.noise(0, 0.5, { freq: 700, freqTo: 120, gain: 0.4 });
     k.noise(0.18, 0.35, { freq: 500, freqTo: 100, gain: 0.25 });
+  },
+  strike: (k, t) => {
+    // incoming: a falling whoosh (jets or a missile), then the impact
+    k.noise(0, 0.75, { filter: 'bandpass', freq: modern(t) ? 4200 : 2600, freqTo: 380, q: 1.4, gain: 0.22, attack: 0.25 });
+    k.tone(62, 0.7, 0.7, { gain: 0.45, slideTo: 32 });
+    k.noise(0.7, 0.55, { freq: 900, freqTo: 120, gain: 0.38 });
   },
   capture: (k, t) => {
     const type = modern(t) ? 'square' : 'triangle';

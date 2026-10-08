@@ -42,7 +42,7 @@ function showGate(root: HTMLElement, done: () => void) {
     try {
       const res = await fetch('/api/beta/unlock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) return done();
+      if (res.ok) { root.replaceChildren(); return done(); }
       error.textContent = body.error ?? `Something went wrong (HTTP ${res.status}).`;
     } catch {
       error.textContent = 'The game server could not be reached. Try again in a moment.';

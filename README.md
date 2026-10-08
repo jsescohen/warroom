@@ -187,6 +187,25 @@ by geographic zone (`src/core/regions.ts`, renamed per era via `scenario.tribeNa
 7. ✅ Remaining eras
 8. ✅ Save/load, main menu, settings, sound, era themes
 
+## Garrisons, navies and strikes
+
+- **Garrisons** (`garrisonMax` in `src/core/military.ts`): every province has its own defenders, about a fifth of an army in
+  the homeland, less in occupied land, more at the capital. Invaders must beat them before the occupation starts; they
+  fight back, regrow when no enemy stands there, and start from zero after a province changes hands. Shown in the
+  province panel. Field armies: about 1.4x the previous counts (`armyCap`).
+- **Fleets** are units with `domain: 'sea'` (one or two types per era): they sail along coasts and sea lanes, may pass
+  neutral shores, fight enemy fleets they meet, and never capture land. Fleet numbers follow each nation's `naval`
+  value (about 6 at 1.0), rebuilt every 60 days at the home port. Lake shores and inland data gaps are not coast
+  (`seaShoreTest` in `src/map/mapData.ts`).
+- **Sea control**: troops cannot cross a sea lane where enemy fleets are 1.2x stronger than ours (counting fleets
+  within ~600 km at half weight); convoys caught at sea take heavy losses. Replaces the old abstract naval penalty.
+- **Era-gated firepower**: ancient galleys, triremes and dromons only fight and escort. From 1500, ships with
+  `bombard` give gunfire support to their own troops fighting on that coast. WW2 carriers (~470 km) and modern carriers
+  and missile destroyers have a `strike`: select the fleet, press *Air/Missile strike…*, click a target inside the ring
+  (Esc cancels); it then rearms. The AI hunts weaker squadrons, supports its armies' coasts, strikes, and refits in port.
+- **AI**: assembles next to a target before attacking (unless overwhelmingly stronger), ignores objectives no free army can
+  reach, and cautious nations (aggression < 0.3) stay on the defensive unless 1.5x stronger (the 1939 Phoney War).
+
 ## Closed beta & deployment
 
 - **Beta gate** (`server/beta.ts`, `src/ui/betaGate.ts`): set `BETA_CODES=CODE1,CODE2` in `.env`. Players enter a code once;

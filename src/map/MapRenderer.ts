@@ -156,6 +156,12 @@ export class MapRenderer {
     this.armies.setSelected(id);
   }
 
+  /** Strike range ring around a fleet; null hides it. */
+  setStrikeRange(army: string | null, radius = 0) {
+    this.armies.setRange(army, radius);
+    this.needsRender = true;
+  }
+
   /** Dashed preview of a move order; null clears it. */
   setMovePreview(points: [number, number][] | null, ok = true) {
     this.armies.setPreview(points, ok);

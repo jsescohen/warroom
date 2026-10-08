@@ -4,7 +4,7 @@ import type { Graphics } from 'pixi.js';
  * Small NATO-style unit symbols drawn as vectors inside a w x h frame centred at (cx, cy).
  * Era-specific unit ids map onto a handful of symbol families.
  */
-type Symbol = 'infantry' | 'armor' | 'artillery' | 'air' | 'cavalry' | 'missile' | 'naval' | 'generic';
+type Symbol = 'infantry' | 'armor' | 'artillery' | 'air' | 'cavalry' | 'missile' | 'naval' | 'carrier' | 'generic';
 
 const FAMILY: Record<string, Symbol> = {
   infantry: 'infantry', spearmen: 'infantry', legion: 'infantry', pikemen: 'infantry', militia: 'infantry', guard: 'infantry',
@@ -14,7 +14,8 @@ const FAMILY: Record<string, Symbol> = {
   air: 'air', drones: 'air', aircraft: 'air',
   cavalry: 'cavalry', chariots: 'cavalry', knights: 'cavalry', 'horse-archers': 'cavalry',
   missiles: 'missile', missile: 'missile',
-  navy: 'naval', fleet: 'naval', galleys: 'naval',
+  navy: 'naval', fleet: 'naval', galleys: 'naval', triremes: 'naval', dromons: 'naval', carracks: 'naval',
+  dreadnoughts: 'naval', battleships: 'naval', destroyers: 'naval', carriers: 'carrier',
 };
 
 export function drawUnitSymbol(g: Graphics, unitType: string, cx: number, cy: number, w: number, h: number, color: number) {
@@ -43,6 +44,11 @@ export function drawUnitSymbol(g: Graphics, unitType: string, cx: number, cy: nu
       break;
     case 'naval':
       g.moveTo(cx, y0 + 1.5).lineTo(cx, y1 - 1.5).moveTo(cx - 3, y1 - 3).quadraticCurveTo(cx, y1, cx + 3, y1 - 3).stroke(line);
+      break;
+    case 'carrier':
+      // flight deck with the island, over the anchor
+      g.moveTo(x0 + 1.5, cy - 1).lineTo(x1 - 1.5, cy - 1).moveTo(cx + 2, cy - 1).lineTo(cx + 2, y0 + 1.5).stroke(line);
+      g.moveTo(cx - 3, y1 - 3).quadraticCurveTo(cx, y1, cx + 3, y1 - 3).stroke(line);
       break;
     default:
       g.circle(cx, cy, 1.6).fill(color);

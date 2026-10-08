@@ -76,7 +76,7 @@ describe('estimate', () => {
     const from = Object.keys(s.provinces).find((p) => s.provinces[p].owner === 'GER' &&
       world.provinces[p].links.some((l) => !l.sea && s.provinces[l.to].owner === 'POL'))!;
     const to = world.provinces[from].links.find((l) => !l.sea && s.provinces[l.to].owner === 'POL')!.to;
-    const ger = Object.values(s.armies).filter((a) => a.owner === 'GER').slice(0, 6);
+    const ger = Object.values(s.armies).filter((a) => a.owner === 'GER').slice(0, 8);
     s = { ...s, armies: { ...s.armies, ...Object.fromEntries(ger.map((a) => [a.id, { ...a, location: from }])) } };
     const m = classifyMajor(s, world, { type: 'moveArmy', army: ger[0].id, to }, 'GER', 'all')!;
     expect(m.province).toBe(to);

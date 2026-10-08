@@ -1,5 +1,5 @@
 import { mergeable } from '../core/actions';
-import { findPath } from '../core/military';
+import { findPath, garrisonMax, garrisonOf, isFleet } from '../core/military';
 import { allied, armiesIn, atWar, enemiesOf, friendly, getRelation, provincesOf } from '../core/queries';
 import type { Army, GameState, NationId } from '../core/types';
 import type { World } from '../core/world';
@@ -27,6 +27,8 @@ export interface PanelActions {
   declareWar(target: NationId): void;
   selectArmy(id: string): void;
   armyOrder(type: 'stopArmy' | 'splitArmy' | 'mergeArmies', army: string): void;
+  /** Start choosing a target for a fleet's strike. */
+  strike(army: string): void;
   focus(provinceId: string): void;
   diplomacy(nation: NationId): void;
 }
@@ -67,22 +69,34 @@ export class SidePanel {
     const name = (id: string) => this.map.byId.get(id)?.name ?? id;
     const mine = a.owner === s.playerNation;
     const frac = a.strength / a.maxStrength;
+    const fleet = isFleet(this.world, a.unitType);
+    const engaged = a.progress === 0 && Object.values(s.armies).some((b) => b.location === a.location && b.progress === 0 &&
+      isFleet(this.world, b.unitType) === fleet && atWar(s, a.owner, b.owner));
 
     let status: string;
     const siege = s.provinces[a.location].siege;
-    if (s.battles[a.location] !== undefined && a.progress === 0) {
+    if (engaged && s.battles[a.location] !== undefined) {
       const days = Math.floor((s.clock.hours - s.battles[a.location]) / 24) + 1;
-      status = `In battle at ${name(a.location)} (day ${days})`;
-    } else if (siege?.by === a.owner && a.progress === 0) {
-      status = `Capturing ${name(a.location)} — ${Math.round(siege.progress * 100)}%`;
+      status = fleet ? `Naval battle off ${name(a.location)} (day ${days})` : `In battle at ${name(a.location)} (day ${days})`;
+    } else if (!fleet && siege?.by === a.owner && a.progress === 0) {
+      status = siege.progress > 0 || garrisonOf(s, a.location) <= 0.05
+        ? `Capturing ${name(a.location)} — ${Math.round(siege.progress * 100)}%`
+        : `Fighting the garrison of ${name(a.location)} (${garrisonOf(s, a.location).toFixed(1)} left)`;
     } else if (a.path.length) {
       const dest = a.path[a.path.length - 1];
       const eta = findPath(s, this.world, a.owner, a.unitType, a.location, dest);
-      status = `Marching to ${name(dest)}${eta ? ` — about ${formatDuration(eta.hours)}` : ''}`;
-    } else status = `Holding at ${name(a.location)}`;
+      status = `${fleet ? 'Sailing' : 'Marching'} to ${name(dest)}${eta ? ` — about ${formatDuration(eta.hours)}` : ''}`;
+    } else status = fleet ? `On station off ${name(a.location)}` : `Holding at ${name(a.location)}`;
+    const strike = unit?.strike;
+    const ready = !strike || (a.readyAt ?? 0) <= s.clock.hours;
+    const abilities = fleet
+      ? [unit?.bombard ? 'shells enemy troops on this coast' : null,
+         strike ? `${strike.kind === 'air' ? 'carrier air strikes' : 'missile strikes'} up to ${Math.round(strike.range * 6.7)} km` : null,
+         'escorts landings and blockades enemy crossings'].filter(Boolean).join('; ')
+      : null;
 
     fill(this.info, 
-      h('div', null, h('div', { class: 'eyebrow' }, mine ? 'Your army' : 'Army'), h('h2', null, a.name)),
+      h('div', null, h('div', { class: 'eyebrow' }, `${mine ? 'Your ' : ''}${fleet ? 'fleet' : 'army'}`.replace(/^./, (c) => c.toUpperCase())), h('h2', null, a.name)),
       h('dl', { class: 'kv' },
         h('dt', null, 'Nation'), h('dd', null, swatch(owner.color), owner.name),
         h('dt', null, 'Type'), h('dd', null, unit?.name ?? a.unitType),
@@ -91,15 +105,22 @@ export class SidePanel {
           `${a.strength.toFixed(1)} / ${a.maxStrength.toFixed(0)}`),
         unit ? h('dt', null, 'Attack · Def') : null, unit ? h('dd', null, `${unit.attack} · ${unit.defense}  ·  speed ${unit.speed}`) : null,
         h('dt', null, 'Status'), h('dd', null, status),
+        abilities ? h('dt', null, 'Role') : null, abilities ? h('dd', null, abilities) : null,
+        strike ? h('dt', null, strike.kind === 'air' ? 'Air wing' : 'Missiles') : null,
+        strike ? h('dd', null, ready ? h('span', { class: 'ok-text' }, 'Ready') : `${strike.kind === 'air' ? 'Rearming' : 'Reloading'} — ${formatDuration((a.readyAt ?? 0) - s.clock.hours)}`) : null,
       ),
-      mine ? h('p', { class: 'hint' }, 'Click a province to move. Enemy provinces are attacked and captured on arrival.') : null,
+      mine ? h('p', { class: 'hint' }, fleet
+        ? 'Click a coastal province to sail there. Fleets fight enemy fleets they meet and keep the sea open for your troops.'
+        : 'Click a province to move. Enemy provinces are attacked: beat the local garrison, then the province is taken.') : null,
     );
 
     if (!mine) return this.setActions(`army-other|${a.location}`, [this.focusBtn(a.location)]);
     const canMerge = mergeable(s, a.id).length > 0;
     const moving = a.path.length > 0;
-    const key = `army|${a.id}|${moving}|${canMerge}|${a.strength >= 2}`;
+    const key = `army|${a.id}|${moving}|${canMerge}|${a.strength >= 2}|${ready}`;
     this.setActions(key, [
+      strike ? h('button', { class: 'btn danger', disabled: !ready || a.progress > 0, title: 'Choose a target within range (Esc cancels)', onclick: () => this.act.strike(a.id) },
+        strike.kind === 'air' ? 'Air strike…' : 'Missile strike…') : null,
       moving ? h('button', { class: 'btn', onclick: () => this.act.armyOrder('stopArmy', a.id) }, 'Halt') : null,
       a.strength >= 2 ? h('button', { class: 'btn', title: 'Split into two armies of half strength', onclick: () => this.act.armyOrder('splitArmy', a.id) }, 'Split') : null,
       canMerge ? h('button', { class: 'btn', title: 'Merge idle armies of the same type here', onclick: () => this.act.armyOrder('mergeArmies', a.id) }, 'Merge') : null,
@@ -127,7 +148,9 @@ export class SidePanel {
     if (geo.polity !== owner.name && geo.polity !== owner.shortName) provRows.push(['Region', geo.polity.replace('Chinese warlords', 'China')]);
     if (owner.capital === id) provRows.push(['Status', '★ National capital']);
     if (s.battles[id] !== undefined) provRows.push(['Battle', h('span', { class: 'danger-text' }, `Raging since ${formatDuration(s.clock.hours - s.battles[id])} ago`)]);
-    if (prov.siege) provRows.push(['Under siege', `${s.nations[prov.siege.by].shortName} — ${Math.round(prov.siege.progress * 100)}%`]);
+    const g = garrisonOf(s, id), gMax = garrisonMax(s, id);
+    provRows.push(['Garrison', h('span', { class: g < gMax * 0.5 ? 'danger-text' : '' }, `${g.toFixed(1)} / ${gMax.toFixed(1)}${g < gMax - 0.05 ? ' (recovering)' : ''}`)]);
+    if (prov.siege) provRows.push(['Under siege', `${s.nations[prov.siege.by].shortName} — ${prov.siege.progress > 0 || g <= 0.05 ? `${Math.round(prov.siege.progress * 100)}%` : 'fighting the garrison'}`]);
 
     const here = armiesIn(s, id);
     const forces = here.length
@@ -139,7 +162,10 @@ export class SidePanel {
 
     const nationRows: [string, ...(Node | string)[]][] = [['Territory', `${owned.length} provinces (${share}%)`]];
     if (owner.capital) nationRows.push(['Capital', this.map.byId.get(owner.capital)?.name ?? '—']);
-    nationRows.push(['Armies', String(Object.values(s.armies).filter((a) => a.owner === owner.id).length)]);
+    const forcesOf = Object.values(s.armies).filter((a) => a.owner === owner.id);
+    const fleets = forcesOf.filter((a) => isFleet(this.world, a.unitType)).length;
+    nationRows.push(['Armies', String(forcesOf.length - fleets)]);
+    if (fleets) nationRows.push(['Fleets', String(fleets)]);
     if (allies.length) nationRows.push(['Allies', names(allies)]);
     if (enemies.length) nationRows.push(['At war with', h('span', { class: 'danger-text' }, names(enemies))]);
     if (player && player !== owner.id) {

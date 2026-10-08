@@ -45,6 +45,7 @@ export function createInitialState(scenario: ScenarioDef, mapId: string, provinc
       aggression: n.aggression ?? (n.major ? 0.4 : 0.15),
       naval: n.naval ?? 0.1,
       quality: n.quality ?? 1,
+      ...(n.fleets ? { fleets: n.fleets } : {}),
     };
   }
 

@@ -33,6 +33,8 @@ export const modern: ScenarioDef = {
     { id: 'armor', name: 'Armored Brigade', short: 'Armored Brigade', attack: 7, defense: 4, speed: 40 },
     { id: 'air', name: 'Air Wing', short: 'Air Wing', attack: 6, defense: 2, speed: 180 },
     { id: 'drones', name: 'Drone Group', short: 'Drone Group', attack: 5, defense: 1.5, speed: 90 },
+    { id: 'destroyers', name: 'Destroyer Squadron', short: 'Destroyer Squadron', attack: 5, defense: 5, speed: 100, domain: 'sea', bombard: 1, strike: { kind: 'missile', range: 200, power: 1.5, cooldownHours: 72 } },
+    { id: 'carriers', name: 'Carrier Strike Group', short: 'Strike Group', attack: 5, defense: 4, speed: 100, domain: 'sea', strike: { kind: 'air', range: 150, power: 2.5, cooldownHours: 24 } },
   ],
   nations: [
     n('USA', 'United States', '#3b6fa8', { quality: 1.3,

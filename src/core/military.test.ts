@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reduce, validate, type Action } from './actions';
+import { mergeable, reduce, validate, type Action } from './actions';
 import { byName, fresh, world } from './fixture.test-util';
 import { findPath } from './military';
 import { armiesIn, atWar, provincesOf } from './state';
@@ -69,10 +69,12 @@ describe('orders', () => {
   it('split then merge restores strength', () => {
     let s = fresh();
     const a = armiesOf(s, 'GER')[0];
+    // armies of the same type already standing with it merge in as well
+    const partners = mergeable(s, a.id).reduce((x, b) => x + b.strength, 0);
     s = act(s, { type: 'splitArmy', army: a.id }, 'GER');
     expect(armiesOf(s, 'GER').length).toBe(armiesOf(fresh(), 'GER').length + 1);
     s = act(s, { type: 'mergeArmies', army: a.id }, 'GER');
-    expect(s.armies[a.id].strength).toBeCloseTo(a.strength);
+    expect(s.armies[a.id].strength).toBeCloseTo(a.strength + partners);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { Action } from './actions';
 import { militaryPower, willingness } from './diplomacy';
-import { findPath } from './military';
+import { findPath, garrisonMax, garrisonOf, garrisonPower, isFleet, seaPower } from './military';
 import { allied, atWar, friendly, getRelation } from './queries';
 import type { GameState, NationId, ProvinceId } from './types';
 import { treatyName } from './war';
@@ -85,7 +85,7 @@ export function classifyMajor(s: GameState, world: World, action: Action, actor:
   }
   if (action.type !== 'moveArmy' || mode === 'off') return null;
   const army = s.armies[action.army];
-  if (!army) return null;
+  if (!army || isFleet(world, army.unitType)) return null; // fleets sail freely: no staff estimate
   const route = findPath(s, world, army.owner, army.unitType, army.location, action.to);
   if (!route) return null;
   // first enemy province on the route is what is being attacked
@@ -162,16 +162,24 @@ export function estimate(s: GameState, world: World, m: MajorAction): Estimate {
     const p = m.province!;
     const near = new Set([p, ...world.provinces[p].links.map((l) => l.to)]);
     const army = s.armies[(m.action as { army: string }).army];
-    const ourArmies = Object.values(s.armies).filter((a) => a.owner === m.actor && (a.id === army?.id || (near.has(a.location) && a.progress === 0)));
-    const theirArmies = Object.values(s.armies).filter((a) => atWar(s, m.actor, a.owner) && near.has(a.location));
+    const land = (a: { unitType: string }) => !isFleet(world, a.unitType);
+    const ourArmies = Object.values(s.armies).filter((a) => land(a) && a.owner === m.actor && (a.id === army?.id || (near.has(a.location) && a.progress === 0)));
+    const theirArmies = Object.values(s.armies).filter((a) => land(a) && atWar(s, m.actor, a.owner) && near.has(a.location));
     const pw = (list: typeof ourArmies, defending: boolean) => list.reduce((x, a) => {
       const u = world.unitTypes[a.unitType];
       const inPlace = a.location === p ? 1 : 0.5;
       return x + a.strength * (defending ? u?.defense ?? 3 : u?.attack ?? 3) * inPlace;
     }, 0);
     ours = pw(ourArmies, false);
-    theirs = pw(theirArmies, true) * 1.2 * (s.nations[m.target]?.capital === p ? 1.25 : 1);
-    if (m.kind === 'navalInvasion') { ours *= 0.8; notes.push('Amphibious landing: troops arrive slowly over sea lanes.'); }
+    const garrison = garrisonPower(s, p);
+    theirs = pw(theirArmies, true) * 1.2 * (s.nations[m.target]?.capital === p ? 1.25 : 1) + garrison;
+    if (m.kind === 'navalInvasion') {
+      ours *= 0.8;
+      notes.push('Amphibious landing: troops arrive slowly over sea lanes.');
+      const { own, enemy } = seaPower(s, world, m.actor, p);
+      if (enemy > 0) notes.push(enemy > own * 1.2 ? 'Enemy fleets control these waters: the crossing will be blocked or the convoy sunk.' : 'Enemy fleets are near, but ours hold the sea.');
+    }
+    notes.push(`The local garrison is ${garrisonOf(s, p) >= garrisonMax(s, p) - 0.05 ? 'at full strength' : 'weakened'} (${garrisonOf(s, p).toFixed(1)}).`);
     notes.push(`${theirArmies.length} enemy arm${theirArmies.length === 1 ? 'y' : 'ies'} in or next to ${world.provinces[p].name}; ${ourArmies.length} of ours can join.`);
     if (theirs === 0) notes.push('The province appears undefended.');
   }

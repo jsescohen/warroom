@@ -25,6 +25,7 @@ export const bronze: ScenarioDef = {
     { id: 'spearmen', name: 'Spearmen', short: 'Host', attack: 2.5, defense: 3.5, speed: 4 },
     { id: 'chariots', name: 'Chariotry', short: 'Chariot Host', attack: 4.5, defense: 2, speed: 7 },
     { id: 'archers', name: 'Archers', short: 'Bowmen', attack: 3.5, defense: 2.5, speed: 4 },
+    { id: 'galleys', name: 'War Galleys', short: 'Galley Squadron', attack: 2, defense: 2, speed: 12, domain: 'sea' },
   ],
   nations: [
     {

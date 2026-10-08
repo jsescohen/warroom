@@ -29,8 +29,10 @@ export interface Nation {
   units: string[];
   /** AI personality 0..1: appetite for wars of expansion. */
   aggression: number;
-  /** Naval strength 0..1 (stand-in for fleets): landings on this nation's coasts are much harder. */
+  /** Naval power 0..1: how many fleets the nation keeps (see fleetCap). */
   naval: number;
+  /** Fleet types built, cycled in order (default: every fleet type of the era). */
+  fleets?: string[];
   /** Combat quality multiplier (doctrine, training, equipment of the era). 1 = average. */
   quality: number;
 }
@@ -41,6 +43,8 @@ export interface ProvinceState {
   core?: NationId;
   /** Capture in progress by an army with no opposition in the province. */
   siege?: { by: NationId; progress: number }; // progress 0..1
+  /** Strength of the province's own defenders. Missing = at full strength (see garrisonMax). */
+  garrison?: number;
 }
 
 export interface Army {
@@ -58,6 +62,8 @@ export interface Army {
   progress: number;
   /** Clock hour until which the army is still disembarking from a sea landing (weaker attack). */
   landedUntil?: number;
+  /** Fleets with strikes: clock hour when the next strike is ready. */
+  readyAt?: number;
 }
 
 export interface War {

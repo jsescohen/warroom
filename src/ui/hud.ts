@@ -1,7 +1,7 @@
 import { getAiInfo, pingAi } from '../ai/llmClient';
 import { validate, type Action } from '../core/actions';
 import { classifyMajor, type AssessorMode } from '../core/assess';
-import { canEnter, findPath } from '../core/military';
+import { canEnter, findPath, isFleet, strikeError } from '../core/military';
 import { friendly } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
@@ -40,6 +40,8 @@ export class Hud {
   private diplo: DiplomacyWindow;
   private diploBtn = h('button', { class: 'btn diplo-btn', title: 'Diplomacy (D)' }, 'Diplomacy');
   private speedBeforeDiplomacy: Speed = 0;
+  /** Fleet choosing a target for its strike (the next province clicked). */
+  private targeting: string | null = null;
 
   constructor(
     root: HTMLElement,
@@ -56,6 +58,7 @@ export class Hud {
       declareWar: (target) => void this.declareWar(target),
       selectArmy: (id) => this.select({ kind: 'army', id }),
       armyOrder: (type, army) => this.dispatch({ type, army } as Action),
+      strike: (army) => this.startStrike(army),
       focus: (id) => renderer.focusOn(id),
       diplomacy: (nation) => this.diplo.open(nation),
     });
@@ -108,6 +111,7 @@ export class Hud {
     root.append(this.topbar, this.side.el, this.log, zoom, this.tip, this.toasts, this.diplo.el);
 
     renderer.on('select', (id) => {
+      if (this.targeting) { if (id) this.fireStrike(id); return; }
       const army = this.ownSelectedArmy();
       if (army && id) void this.orderMove(army, id);
       else this.select(id ? { kind: 'province', id } : null);
@@ -133,6 +137,7 @@ export class Hud {
       },
     };
     renderer.on('command', (id) => {
+      if (this.targeting) { if (id) this.fireStrike(id); return; }
       const army = this.ownSelectedArmy();
       if (army && id) void this.orderMove(army, id);
     });
@@ -183,11 +188,40 @@ export class Hud {
   // ---- selection & orders -------------------------------------------------------------------------
 
   private select(sel: Selection) {
+    if (this.targeting && !(sel?.kind === 'army' && sel.id === this.targeting)) this.endStrike();
     this.selection = sel;
     this.renderer.setSelection(sel?.kind === 'province' ? sel.id : null);
     this.renderer.setArmySelection(sel?.kind === 'army' ? sel.id : null);
     this.renderer.setMovePreview(null);
     this.side.render(this.state, sel);
+    this.renderTip();
+  }
+
+  // ---- strikes ------------------------------------------------------------------------------------
+
+  private startStrike(army: string) {
+    const a = this.state.armies[army];
+    const strike = a && this.store.world.unitTypes[a.unitType]?.strike;
+    if (!a || !strike) return;
+    if (this.selection?.kind !== 'army' || this.selection.id !== army) this.select({ kind: 'army', id: army });
+    this.targeting = army;
+    this.renderer.setStrikeRange(army, strike.range);
+    document.body.classList.add('targeting');
+    this.toast(`Choose a target for the ${strike.kind === 'air' ? 'air' : 'missile'} strike inside the ring. Esc cancels.`, 'info');
+  }
+
+  private endStrike() {
+    this.targeting = null;
+    this.renderer.setStrikeRange(null);
+    document.body.classList.remove('targeting');
+  }
+
+  private fireStrike(target: string) {
+    const army = this.targeting!;
+    const err = validate(this.state, { action: { type: 'strike', army, target }, actor: this.state.playerNation ?? 'system' }, this.store.world);
+    if (err) { this.toast(err, 'alert'); audio.play('error'); return; }
+    this.endStrike();
+    if (this.dispatch({ type: 'strike', army, target })) audio.play('strike');
     this.renderTip();
   }
 
@@ -206,6 +240,10 @@ export class Hud {
     this.renderer.setMovePreview(null);
     const s = this.state;
     const owner = s.provinces[to]?.owner;
+    if (isFleet(this.store.world, army.unitType)) {
+      if (!canEnter(s, army.owner, to, this.store.world, army.unitType)) return this.toast('Fleets can only sail to coastal provinces.', 'alert');
+      return this.dispatch(action);
+    }
     if (owner && !canEnter(s, army.owner, to)) {
       if (friendly(s, army.owner, owner)) return this.toast(`${s.nations[owner].shortName} is a friend: you have no right to fight there.`, 'alert');
       return this.declareAndAttack(army, to);
@@ -258,6 +296,8 @@ export class Hud {
         case 'agreement': if (mine) audio.play('signed'); break;
         case 'treaty-broken': case 'ceasefire-ended': if (mine) audio.play('alert'); break;
         case 'mobilize': audio.play('order', { minGapMs: 2000 }); break;
+        case 'strike': if (!won) audio.play('strike', { minGapMs: 800 }); break; // our own strikes play when ordered
+        case 'blockade': audio.play('alert'); break;
       }
     }
   }
@@ -374,7 +414,7 @@ export class Hud {
     if (e.code === 'Space') { e.preventDefault(); this.loop.togglePause(); }
     else if (e.key === '1' || e.key === '2' || e.key === '3') this.loop.setSpeed(SPEEDS[Number(e.key) - 1] as Speed);
     else if (e.key === 'n' || e.key === 'N') this.skip();
-    else if (e.key === 'Escape') { if (this.selection) this.select(null); else void this.openMenu(); }
+    else if (e.key === 'Escape') { if (this.targeting) this.endStrike(); else if (this.selection) this.select(null); else void this.openMenu(); }
     else if (e.key === 'd' || e.key === 'D') this.diplo.open(this.selectedNation() ?? undefined);
   }
 
@@ -415,11 +455,22 @@ export class Hud {
     const owner = s.nations[s.provinces[id].owner];
     const parts: (Node | string)[] = [swatch(owner.color), h('strong', null, geo.name), h('span', { class: 'dim' }, owner.shortName)];
 
+    const g = s.provinces[id];
+    if (g.garrison !== undefined && g.garrison < 0.05) parts.push(h('span', { class: 'dim' }, 'no garrison'));
+
     const army = this.ownSelectedArmy();
-    if (army && !(army.location === id && army.progress === 0)) {
+    if (this.targeting && army?.id === this.targeting) {
+      const err = strikeError(s, this.store.world, army.id, id);
+      parts.push(h('span', { class: err ? 'danger-text' : 'ok-text' }, err ?? 'Strike here'));
+      this.renderer.setMovePreview(null);
+    } else if (army && !(army.location === id && army.progress === 0)) {
       const start = this.armyPos(army);
       const world = this.store.world;
-      if (!canEnter(s, army.owner, id)) {
+      const fleet = isFleet(world, army.unitType);
+      if (fleet && !canEnter(s, army.owner, id, world, army.unitType)) {
+        parts.push(h('span', { class: 'danger-text' }, 'Not on the coast'));
+        this.renderer.setMovePreview([start, geo.label], false);
+      } else if (!fleet && !canEnter(s, army.owner, id)) {
         parts.push(h('span', { class: 'danger-text' }, friendly(s, army.owner, owner.id) ? 'No access (friendly)' : `Declare war on ${owner.shortName} & attack`));
         this.renderer.setMovePreview([start, geo.label], false);
       } else {
@@ -428,8 +479,8 @@ export class Hud {
           parts.push(h('span', { class: 'danger-text' }, 'No route'));
           this.renderer.setMovePreview([start, geo.label], false);
         } else {
-          const enemy = s.provinces[id].owner !== army.owner && !friendly(s, army.owner, s.provinces[id].owner);
-          parts.push(h('span', { class: enemy ? 'danger-text' : 'ok-text' }, `${enemy ? 'Attack' : 'Move'} · ${formatDuration(route.hours)}`));
+          const enemy = !fleet && s.provinces[id].owner !== army.owner && !friendly(s, army.owner, s.provinces[id].owner);
+          parts.push(h('span', { class: enemy ? 'danger-text' : 'ok-text' }, `${enemy ? 'Attack' : fleet ? 'Sail' : 'Move'} · ${formatDuration(route.hours)}`));
           this.renderer.setMovePreview([start, ...route.path.map((p) => world.provinces[p].label)], true);
         }
       }

@@ -1,6 +1,7 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { isFleet } from '../core/military';
 import { atWar } from '../core/queries';
-import type { Army, ArmyId, GameState, ProvinceId } from '../core/types';
+import type { Army, ArmyId, GameState } from '../core/types';
 import type { World } from '../core/world';
 import type { Theme } from '../ui/themes';
 import { hexToNum } from '../ui/themes';
@@ -37,6 +38,8 @@ export class ArmyLayer {
   private state: GameState | null = null;
   private selected: ArmyId | null = null;
   private preview: { points: [number, number][]; ok: boolean } | null = null;
+  /** Strike range ring around a fleet choosing a target. */
+  private range: { army: ArmyId; radius: number } | null = null;
   private time = 0;
   /** Reduced motion: no marker easing or pulsing. */
   reduceMotion = false;
@@ -52,12 +55,14 @@ export class ArmyLayer {
     this.state = state;
     this.dirty = true;
     const seen = new Set<ArmyId>();
-    // stack idle armies per province
-    const stacks = new Map<ProvinceId, Army[]>();
+    // stack idle armies per province: troops above the province centre, fleets below it
+    const stacks = new Map<string, Army[]>();
+    const stackKey = (a: Army) => `${a.location}|${isFleet(this.world, a.unitType) ? 's' : 'l'}`;
     for (const a of Object.values(state.armies)) {
       if (a.progress > 0) continue;
-      if (!stacks.has(a.location)) stacks.set(a.location, []);
-      stacks.get(a.location)!.push(a);
+      const k = stackKey(a);
+      if (!stacks.has(k)) stacks.set(k, []);
+      stacks.get(k)!.push(a);
     }
     for (const list of stacks.values()) list.sort((a, b) => (a.owner === b.owner ? (a.id < b.id ? -1 : 1) : a.owner < b.owner ? -1 : 1));
 
@@ -72,12 +77,12 @@ export class ArmyLayer {
         m.ox = 0;
         m.oy = 0;
       } else {
-        const list = stacks.get(a.location)!;
+        const list = stacks.get(stackKey(a))!;
         const i = list.indexOf(a), n = list.length;
         const perRow = 3;
         const row = Math.floor(i / perRow), col = i % perRow, inRow = Math.min(perRow, n - row * perRow);
         m.ox = (col - (inRow - 1) / 2) * (W + GAP);
-        m.oy = -(17 + row * (H + GAP));
+        m.oy = isFleet(this.world, a.unitType) ? 17 + row * (H + GAP) : -(17 + row * (H + GAP));
       }
       this.styleMarker(m, a);
     }
@@ -97,6 +102,12 @@ export class ArmyLayer {
   /** Path preview for a pending move order (world points, starting at the army). */
   setPreview(points: [number, number][] | null, ok = true) {
     this.preview = points ? { points, ok } : null;
+    this.dirty = true;
+  }
+
+  /** Shows the strike range of a fleet (map units), or hides it. */
+  setRange(army: ArmyId | null, radius = 0) {
+    this.range = army ? { army, radius } : null;
     this.dirty = true;
   }
 
@@ -196,14 +207,23 @@ export class ArmyLayer {
     const selected = a.id === this.selected;
     if (selected) g.roundRect(-W / 2 - 3, -H / 2 - 3, W + 6, H + 6, 6).fill({ color: this.theme.map.selection, alpha: 0.95 });
     const edge = rel === 'enemy' ? 0xc0392b : rel === 'own' ? 0xf4ecd8 : 0x1b1b1b;
-    g.roundRect(-W / 2, -H / 2, W, H, 4).fill(color).stroke({ width: rel === 'other' ? 1.2 : 1.8, color: edge });
+    // fleets are pill-shaped so they read as ships at a glance
+    const radius = isFleet(this.world, a.unitType) ? H / 2 : 4;
+    g.roundRect(-W / 2, -H / 2, W, H, radius).fill(color).stroke({ width: rel === 'other' ? 1.2 : 1.8, color: edge });
     // darker strip behind the symbol for contrast
     g.roundRect(-W / 2 + 2, -H / 2 + 2, 18, H - 4, 2).fill({ color: 0x000000, alpha: 0.28 });
     drawUnitSymbol(g, a.unitType, -W / 2 + 11, 0, 13, 9, 0xffffff);
     // strength bar
     const frac = Math.max(0, Math.min(1, a.strength / a.maxStrength));
     g.rect(-W / 2 + 2, H / 2 - 3, (W - 4) * frac, 2).fill(frac > 0.6 ? 0x9ccf6a : frac > 0.3 ? 0xe2b64a : 0xe0533d);
-    if (inBattle) g.roundRect(-W / 2 - 1.5, -H / 2 - 1.5, W + 3, H + 3, 5).stroke({ width: 1.5, color: 0xff4a3a });
+    if (inBattle && this.engaged(a)) g.roundRect(-W / 2 - 1.5, -H / 2 - 1.5, W + 3, H + 3, 5).stroke({ width: 1.5, color: 0xff4a3a });
+  }
+
+  /** In a battle of its own kind (troops against troops, ships against ships). */
+  private engaged(a: Army) {
+    const s = this.state!;
+    const sea = isFleet(this.world, a.unitType);
+    return Object.values(s.armies).some((b) => b.location === a.location && b.progress === 0 && isFleet(this.world, b.unitType) === sea && atWar(s, a.owner, b.owner));
   }
 
   private drawPaths(z: number) {
@@ -250,6 +270,12 @@ export class ArmyLayer {
       g.moveTo(x - r * 0.75, cy + r * 0.3).lineTo(x - r * 0.3, cy + r * 0.75)
         .moveTo(x + r * 0.75, cy + r * 0.3).lineTo(x + r * 0.3, cy + r * 0.75)
         .stroke({ width: px(1.6), color: 0xffffff, cap: 'round' });
+    }
+    if (this.range) {
+      const m = this.markers.get(this.range.army);
+      if (m) {
+        g.circle(m.x, m.y, this.range.radius).fill({ color: 0xff7a3a, alpha: 0.08 }).stroke({ width: px(1.5), color: 0xff7a3a, alpha: 0.85 });
+      }
     }
     for (const [province, p] of Object.entries(s.provinces)) {
       if (!p.siege) continue;

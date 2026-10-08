@@ -25,6 +25,7 @@ export const romeRise: ScenarioDef = {
     { id: 'cavalry', name: 'Cavalry', short: 'Ala', attack: 3.5, defense: 2, speed: 9 },
     { id: 'horse-archers', name: 'Horse Archers', short: 'Horde', attack: 4, defense: 2, speed: 10 },
     { id: 'spearmen', name: 'Warband', short: 'Warband', attack: 3, defense: 2.5, speed: 5 },
+    { id: 'triremes', name: 'Trireme Squadron', short: 'Classis', attack: 3, defense: 3, speed: 14, domain: 'sea' },
   ],
   nations: [
     {

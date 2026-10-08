@@ -15,7 +15,7 @@ export interface ProvinceGeo {
   label: [number, number];
   lonlat: [number, number];
   neighbors: string[];
-  /** Touches the sea (has at least one coastline border segment). */
+  /** Touches the sea: has a coastline border segment on the real coast (not a lake shore or a gap inland). */
   coastal: boolean;
   /** Polygons → rings → flat [x0, y0, x1, y1, ...]; ring 0 is the outer ring. */
   polygons: number[][][];
@@ -79,7 +79,8 @@ export function parseMap(id: string, file: MapFile): MapData {
       area: p.area, label: p.label, lonlat: p.lonlat, neighbors: p.neighbors, coastal: false, polygons, bbox: [x0, y0, x1, y1],
     };
   });
-  for (const b of file.borders) if (b.b < 0) provinces[b.a].coastal = true;
+  const seaShore = file.land?.length ? seaShoreTest(file.land) : () => true;
+  for (const b of file.borders) if (b.b < 0 && !provinces[b.a].coastal && seaShore(b.c)) provinces[b.a].coastal = true;
   return {
     id,
     width: file.meta.width,
@@ -88,6 +89,45 @@ export function parseMap(id: string, file: MapFile): MapData {
     byId: new Map(provinces.map((p) => [p.id, p])),
     borders: file.borders.map((b) => ({ a: b.a, b: b.b, coords: b.c })),
     land: file.land ?? [],
+  };
+}
+
+/**
+ * Province edges without a neighbour are coast, lake shore, or a gap between territories in the
+ * source data. Only the first is sea: real coastlines run along the edge of the land outline, or
+ * lie outside it altogether (small islands the coarse outline leaves out). Edges deep inside the
+ * land are lakes (Lake Constance, the Great Lakes) or data gaps, where no fleet can sail.
+ */
+function seaShoreTest(land: number[][][]): (coords: number[]) => boolean {
+  const CELL = 3; // map units: how close to the land outline counts as the coast
+  const grid = new Set<number>();
+  const key = (cx: number, cy: number) => cx * 100_003 + cy;
+  for (const poly of land) for (const ring of poly) for (let i = 0; i < ring.length; i += 2) grid.add(key(Math.floor(ring[i] / CELL), Math.floor(ring[i + 1] / CELL)));
+  const nearOutline = (x: number, y: number) => {
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (grid.has(key(cx + dx, cy + dy))) return true;
+    return false;
+  };
+  const boxes = land.map((poly) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const r = poly[0];
+    for (let i = 0; i < r.length; i += 2) { x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]); y0 = Math.min(y0, r[i + 1]); y1 = Math.max(y1, r[i + 1]); }
+    return [x0, y0, x1, y1];
+  });
+  const onLand = (x: number, y: number) => land.some((poly, k) => {
+    const [x0, y0, x1, y1] = boxes[k];
+    if (x < x0 || x > x1 || y < y0 || y > y1) return false;
+    let inside = false;
+    for (const ring of poly) for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+      const yi = ring[i + 1], yj = ring[j + 1];
+      if ((yi > y) !== (yj > y) && x < ((ring[j] - ring[i]) * (y - yi)) / (yj - yi) + ring[i]) inside = !inside;
+    }
+    return inside;
+  });
+  return (coords) => {
+    for (let i = 0; i < coords.length; i += 2) if (nearOutline(coords[i], coords[i + 1])) return true;
+    const m = Math.floor(coords.length / 4) * 2; // a vertex mid-way along the edge
+    return !onLand(coords[m], coords[m + 1]);
   };
 }
 

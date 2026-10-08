@@ -1,6 +1,6 @@
 import { applyAgreement, PROPOSAL_DAYS, ULTIMATUM_GRACE_HOURS, validateTerms } from './diplomacy';
 import { addGrievance, addNote, addRelation, log, logEvent } from './events';
-import { armyName, canEnter, findPath, setOwner } from './military';
+import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
 import { formatShortDate } from './time';
 import { relationKey, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
@@ -21,6 +21,8 @@ export type Action =
   | { type: 'stopArmy'; army: ArmyId }
   | { type: 'splitArmy'; army: ArmyId }
   | { type: 'mergeArmies'; army: ArmyId }
+  /** A fleet with carrier aircraft or missiles strikes a province within range. */
+  | { type: 'strike'; army: ArmyId; target: ProvinceId }
   | { type: 'transferProvince'; province: ProvinceId; to: NationId }
   // diplomacy
   | { type: 'propose'; terms: ProposalTerms }
@@ -82,14 +84,20 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       const a = state.armies[action.army];
       const target = state.provinces[action.to];
       if (!target) return 'Unknown province';
-      if (!canEnter(state, a.owner, action.to)) {
+      const fleet = isFleet(world, a.unitType);
+      if (!canEnter(state, a.owner, action.to, world, a.unitType)) {
+        if (fleet) return 'Fleets can only sail to coastal provinces';
         return `You are not at war with ${state.nations[target.owner].shortName}. Declare war first to invade.`;
       }
-      if (!findPath(state, world, a.owner, a.unitType, a.location, action.to)) return 'No route: the way is blocked by neutral territory';
+      if (!findPath(state, world, a.owner, a.unitType, a.location, action.to)) {
+        return fleet ? 'No sea route to there' : 'No route: the way is blocked by neutral territory or by enemy fleets';
+      }
       return null;
     }
     case 'stopArmy':
       return ownArmy(action.army);
+    case 'strike':
+      return ownArmy(action.army) ?? strikeError(state, world, action.army, action.target);
     case 'splitArmy': {
       const err = ownArmy(action.army);
       if (err) return err;
@@ -159,6 +167,9 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
       const progress = a.progress > 0 && route.path[0] === a.path[0] ? a.progress : 0;
       return { ...state, armies: { ...state.armies, [a.id]: { ...a, path: route.path, progress } } };
     }
+
+    case 'strike':
+      return applyStrike(state, world, action.army, action.target, log);
 
     case 'stopArmy': {
       const a = state.armies[action.army];

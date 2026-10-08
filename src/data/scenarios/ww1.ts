@@ -25,6 +25,7 @@ export const ww1: ScenarioDef = {
     { id: 'infantry', name: 'Infantry Corps', short: 'Corps', attack: 3, defense: 5, speed: 4 },
     { id: 'cavalry', name: 'Cavalry Division', short: 'Cavalry', attack: 3, defense: 2, speed: 8 },
     { id: 'artillery', name: 'Heavy Artillery', short: 'Artillery', attack: 6, defense: 2.5, speed: 3 },
+    { id: 'dreadnoughts', name: 'Battle Squadron', short: 'Battle Squadron', attack: 5, defense: 5, speed: 70, domain: 'sea', bombard: 1.5 },
   ],
   nations: [
     {

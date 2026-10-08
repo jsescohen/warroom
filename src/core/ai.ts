@@ -1,6 +1,7 @@
 import type { Command } from './actions';
 import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplomacy';
 import { addRelation, getRel } from './events';
+import { fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
 import { nextRandom } from './rng';
 import type { Army, GameState, NationId, ProvinceId } from './types';
@@ -31,6 +32,7 @@ export function aiTick(state: GameState, world: World, apply: Apply): GameState 
   ids.forEach((n, i) => {
     if (i % ticksPerDay !== slot || !s.nations[n]?.alive) return;
     s = planArmies(s, world, n, apply, day);
+    s = planFleets(s, world, n, apply, day);
     if ((day + i) % 7 === 0) s = strategize(s, world, n, apply, day);
   });
   if (slot === 0 && day > 0 && day % 30 === 0) s = driftRelations(s);
@@ -61,23 +63,33 @@ const order = (s: GameState, apply: Apply, a: Army, to: ProvinceId) =>
 
 function planArmies(state: GameState, world: World, n: NationId, apply: Apply, day: number): GameState {
   let s = state;
-  const mine = Object.values(s.armies).filter((a) => a.owner === n).sort((a, b) => (a.id < b.id ? -1 : 1));
+  const mine = Object.values(s.armies).filter((a) => a.owner === n && !isFleet(world, a.unitType)).sort((a, b) => (a.id < b.id ? -1 : 1));
   if (!mine.length) return s;
   const enemies = Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e));
   if (!enemies.length) return peacetimePosture(s, world, n, mine, apply, day);
 
-  const isEnemy = (o: NationId) => enemies.includes(o);
+  const enemySet = new Set(enemies);
+  const isEnemy = (o: NationId) => enemySet.has(o);
   const owner = (p: ProvinceId) => s.provinces[p].owner;
+  // alignments do not change while orders are given: look them up once
+  const friends = new Set(Object.keys(s.nations).filter((x) => friendly(s, n, x)));
   // enemy power standing in / next to each province
   const enemyAt = new Map<ProvinceId, number>();
-  for (const a of Object.values(s.armies)) if (isEnemy(a.owner)) enemyAt.set(a.location, (enemyAt.get(a.location) ?? 0) + armyPower(s, world, a, false));
+  for (const a of Object.values(s.armies)) if (isEnemy(a.owner) && !isFleet(world, a.unitType)) enemyAt.set(a.location, (enemyAt.get(a.location) ?? 0) + armyPower(s, world, a, false));
+  const enemyDefAt = new Map<ProvinceId, number>();
+  for (const a of Object.values(s.armies)) if (isEnemy(a.owner) && !isFleet(world, a.unitType)) enemyDefAt.set(a.location, (enemyDefAt.get(a.location) ?? 0) + armyPower(s, world, a, true));
   const ownAt = new Map<ProvinceId, number>();
   for (const a of mine) ownAt.set(a.location, (ownAt.get(a.location) ?? 0) + armyPower(s, world, a, true));
-  const threatTo = (p: ProvinceId) => (enemyAt.get(p) ?? 0) + world.provinces[p].links.reduce((x, l) => x + (enemyAt.get(l.to) ?? 0) * 0.7, 0);
+  const threatMemo = new Map<ProvinceId, number>();
+  const threatTo = (p: ProvinceId) => {
+    let t = threatMemo.get(p);
+    if (t === undefined) threatMemo.set(p, (t = (enemyAt.get(p) ?? 0) + world.provinces[p].links.reduce((x, l) => x + (enemyAt.get(l.to) ?? 0) * 0.7, 0)));
+    return t;
+  };
 
   const used = new Set<string>();
   const inBattle = (a: Army) => s.battles[a.location] !== undefined && a.progress === 0;
-  const homeSide = (p: ProvinceId) => friendly(s, n, owner(p));
+  const homeSide = (p: ProvinceId) => friends.has(owner(p));
   // available: standing still on friendly soil, not fighting, not busy capturing
   // the capital always keeps its garrison (one army in five): these armies are never sent away
   const capitalId = s.nations[n].capital;
@@ -101,7 +113,8 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
     .filter((p) => owner(p) === n)
     // covered = our garrison plus most of our armies next door (they can step in); only real gaps draw reinforcements
     .map((p) => {
-      const cover = (ownAt.get(p) ?? 0) + world.provinces[p].links.reduce((x, l) => x + (ownAt.get(l.to) ?? 0) * 0.6, 0);
+      // troops at home fight with the home-ground bonus, alongside the local garrison
+      const cover = ((ownAt.get(p) ?? 0) * (s.rules.homeDefense ?? 1.2) + garrisonPower(s, p)) + world.provinces[p].links.reduce((x, l) => x + (ownAt.get(l.to) ?? 0) * 0.6, 0);
       return { p, need: threatTo(p) * 1.1 * (p === capital ? 2 : 1) - cover };
     })
     .filter((x) => x.need > 0)
@@ -122,21 +135,45 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
   // enemy provinces next to ours; across the sea only for enemies we cannot reach by land
   const byLand = new Set<ProvinceId>();
   const bySea = new Set<ProvinceId>();
+  const minePos = new Set(mine.map((a) => a.location));
   for (const p of Object.keys(s.provinces)) {
-    if (!homeSide(p) && !mine.some((a) => a.location === p)) continue;
+    if (!homeSide(p) && !minePos.has(p)) continue;
     for (const l of world.provinces[p].links) if (isEnemy(owner(l.to))) (l.sea ? bySea : byLand).add(l.to);
   }
   const landEnemies = new Set([...byLand].map(owner));
-  const seaOnly = new Set([...bySea].filter((t) => !byLand.has(t) && !landEnemies.has(owner(t))));
-  const reachable = new Set([...byLand, ...seaOnly]);
+  // landings only where the enemy does not control the sea
+  const fleets = fleetsByProvince(s, world);
+  const seaOnly = new Set([...bySea].filter((t) => !byLand.has(t) && !landEnemies.has(owner(t)) && !seaDenied(s, world, n, t, fleets)));
+  // cautious nations stay on the defensive against an enemy as strong as they are (the 1939
+  // "Phoney War"): they retake their own lost land, but invade only with a clear overall edge
+  const cautious = s.nations[n].aggression < 0.3;
+  const ourPower = cautious ? militaryPower(s, world, n) : 0;
+  const powerOf = new Map<NationId, number>();
+  const outclassed = (o: NationId) => {
+    if (!powerOf.has(o)) powerOf.set(o, militaryPower(s, world, o));
+    return ourPower < powerOf.get(o)! * 1.5;
+  };
+  // only targets some free army of ours can actually reach (not a far-off colonial border next to an ally)
+  const free = available();
+  const nearest = new Map<ProvinceId, number>();
+  const nearestFree = (t: ProvinceId) => {
+    if (!nearest.has(t)) {
+      const adj = (a: Army) => world.provinces[a.location].links.some((l) => l.to === t);
+      nearest.set(t, free.filter((a) => threatTo(a.location) === 0 || adj(a)).reduce((m, a) => Math.min(m, dist(world, a.location, t)), Infinity));
+    }
+    return nearest.get(t)!;
+  };
+  const inReach = (t: ProvinceId) => nearestFree(t) <= MAX_TASK_DIST;
+  const reachable = new Set([...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || !outclassed(owner(t)))));
   const targets = [...reachable]
     .map((t) => {
-      const defense = Object.values(s.armies).filter((a) => a.location === t && isEnemy(a.owner)).reduce((x, a) => x + armyPower(s, world, a, true), 0) * 1.2;
+      const defense = ((enemyDefAt.get(t) ?? 0) + garrisonPower(s, t)) * 1.2;
       const support = world.provinces[t].links.reduce((x, l) => x + (enemyAt.get(l.to) ?? 0) * 0.8, 0); // neighbours reinforce
       // capitals and our own lost provinces (above all our old capital) are worth the most
       const lost = s.provinces[t].core === n;
       const value = 1 + (s.nations[owner(t)]?.capital === t ? 4 : 0) + (lost ? 3 : 0) + Math.sqrt(world.provinces[t].area) / 20;
-      return { t, defense: defense + support, score: value / (1 + (defense + support) / 30) };
+      // nearby objectives first: a far-off one ties up armies on the march for weeks
+      return { t, defense: defense + support, score: value / (1 + (defense + support) / 30) / (1 + nearestFree(t) / 150) };
     })
     .sort((a, b) => b.score - a.score || (a.t < b.t ? -1 : 1))
     .slice(0, 3);
@@ -146,20 +183,118 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
     const pool = available().filter((a) => dist(world, a.location, t) <= MAX_TASK_DIST && (threatTo(a.location) === 0 || adjacent(a)))
       .sort((x, y) => dist(world, x.location, t) - dist(world, y.location, t));
     const total = pool.reduce((x, a) => x + armyPower(s, world, a, false), 0);
-    const naval = s.nations[owner(t)]?.naval ?? 0;
-    // doctrine: cautious nations only attack with a big local edge; landings need far more, more so against navies
+    // doctrine: cautious nations only attack with a big local edge; landings need far more
     const doctrine = 1.3 + (1 - s.nations[n].aggression) * 1.2;
-    const margin = seaOnly.has(t) ? doctrine * 1.7 * (1 + naval * 1.5) : doctrine;
-    if (!pool.length || total < defense * margin + (seaOnly.has(t) ? 15 : 0)) continue; // not enough to win here: wait and gather
-    let committed = 0;
+    const margin = seaOnly.has(t) ? doctrine * 1.7 : doctrine;
+    const need = defense * margin + (seaOnly.has(t) ? 15 : 0);
+    if (!pool.length || total < need) continue; // not enough to win here: wait
+    // strike together: attack only with the force already assembled next to the target; until it
+    // is strong enough, the rest marches to the assembly point (arriving one by one, they would be
+    // beaten one by one)
+    const ready = pool.filter(adjacent);
+    const readyPower = ready.reduce((x, a) => x + armyPower(s, world, a, false), 0);
+    // with an overwhelming edge, latecomers are reinforcements rather than lambs: go at once
+    const overwhelming = total >= need * 2;
+    if (readyPower >= need || overwhelming) {
+      let committed = 0;
+      for (const a of overwhelming ? pool : ready) {
+        if (committed >= defense * margin * 1.1 + 5) break; // commit enough to win, not a token force
+        const before = s;
+        s = order(s, apply, a, t);
+        if (s !== before) { used.add(a.id); committed += armyPower(s, world, a, false); }
+      }
+      continue;
+    }
+    const staging = world.provinces[t].links
+      .filter((l) => homeSide(l.to) && (seaOnly.has(t) ? l.sea : !l.sea) && threatTo(l.to) <= (ownAt.get(l.to) ?? 0) + readyPower)
+      .map((l) => l.to)
+      .sort((x, y) => (ownAt.get(y) ?? 0) - (ownAt.get(x) ?? 0) || dist(world, pool[0].location, x) - dist(world, pool[0].location, y) || (x < y ? -1 : 1))[0];
+    if (!staging) continue;
+    let gathered = readyPower;
+    for (const a of ready) used.add(a.id); // hold position at the assembly point
     for (const a of pool) {
-      if (committed >= defense * margin * 1.1 + 5) break; // commit enough to win, not a token force
+      if (gathered >= need * 1.1 + 5) break;
+      if (adjacent(a)) continue;
       const before = s;
-      s = order(s, apply, a, t);
-      if (s !== before) { used.add(a.id); committed += armyPower(s, world, a, false); }
+      s = order(s, apply, a, staging);
+      if (s !== before) { used.add(a.id); gathered += armyPower(s, world, a, false); }
     }
   }
   return s;
+}
+
+// ---- fleets -------------------------------------------------------------------------------------
+
+/** Fleets this far (map units) from a task are not sent to it. */
+const FLEET_REACH = 500;
+
+/**
+ * Daily fleet orders: strike if able, repair when battered, hunt weaker enemy squadrons, else
+ * sail off the coasts where our armies fight (shelling the enemy, keeping the sea open), and in
+ * peacetime return to the home port.
+ */
+function planFleets(state: GameState, world: World, n: NationId, apply: Apply, day: number): GameState {
+  let s = state;
+  const mine = Object.values(s.armies).filter((a) => a.owner === n && isFleet(world, a.unitType)).sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (!mine.length) return s;
+  const port = homePort(s, world, n);
+  const enemies = Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e));
+  if (!enemies.length) {
+    if (day % 7 !== 0 || !port) return s;
+    for (const f of mine) if (!f.path.length && f.progress === 0 && dist(world, f.location, port) > 120) s = order(s, apply, f, port);
+    return s;
+  }
+  const isEnemy = (o: NationId) => enemies.includes(o);
+  const enemyFleetAt = new Map<ProvinceId, number>();
+  for (const a of Object.values(s.armies)) {
+    if (!isEnemy(a.owner) || a.progress > 0 || !isFleet(world, a.unitType)) continue;
+    enemyFleetAt.set(a.location, (enemyFleetAt.get(a.location) ?? 0) + fleetPower(s, world, a));
+  }
+  // coasts where our troops are fighting or besieging, or that they are about to cross from
+  const fronts = new Set<ProvinceId>();
+  for (const a of Object.values(s.armies)) {
+    if (a.owner !== n || isFleet(world, a.unitType) || !world.provinces[a.location].coastal) continue;
+    if (s.battles[a.location] !== undefined || isEnemy(s.provinces[a.location].owner)) fronts.add(a.location);
+    else if (a.path.length && world.provinces[a.location].links.some((l) => l.sea && l.to === a.path[0])) fronts.add(a.location);
+  }
+
+  for (const f of mine) {
+    if (!s.armies[f.id]) continue;
+    s = aiStrike(s, world, s.armies[f.id], apply, isEnemy);
+    const cur = s.armies[f.id];
+    if (cur.path.length || cur.progress > 0 || s.battles[cur.location] !== undefined) continue;
+    const power = fleetPower(s, world, cur);
+    // battered: back to port to refit
+    if (cur.strength < cur.maxStrength * 0.4) {
+      if (port && !friendly(s, n, s.provinces[cur.location].owner)) s = order(s, apply, cur, port);
+      continue;
+    }
+    // hunt an enemy squadron we can beat
+    const prey = [...enemyFleetAt].filter(([p, pw]) => dist(world, cur.location, p) <= FLEET_REACH && power > pw * 1.3)
+      .sort((a, b) => dist(world, cur.location, a[0]) - dist(world, cur.location, b[0]) || (a[0] < b[0] ? -1 : 1))[0];
+    if (prey) { s = order(s, apply, cur, prey[0]); continue; }
+    // support the army: the nearest front coast the enemy does not hold at sea
+    const front = [...fronts].filter((p) => dist(world, cur.location, p) <= FLEET_REACH && (enemyFleetAt.get(p) ?? 0) < power)
+      .sort((a, b) => dist(world, cur.location, a) - dist(world, cur.location, b) || (a < b ? -1 : 1))[0];
+    if (front) { s = order(s, apply, cur, front); continue; }
+    if (port && (enemyFleetAt.get(cur.location) ?? 0) > power) s = order(s, apply, cur, port);
+  }
+  return s;
+}
+
+/** Carriers and missile ships hit the strongest enemy force in range, preferring the battle lines. */
+function aiStrike(s: GameState, world: World, f: Army, apply: Apply, isEnemy: (o: NationId) => boolean): GameState {
+  const strike = world.unitTypes[f.unitType]?.strike;
+  if (!strike || f.progress > 0 || (f.readyAt ?? 0) > s.clock.hours) return s;
+  const value = new Map<ProvinceId, number>();
+  for (const a of Object.values(s.armies)) {
+    if (!isEnemy(a.owner) || a.progress > 0 || dist(world, f.location, a.location) > strike.range) continue;
+    const engaged = s.battles[a.location] !== undefined ? 2 : 1;
+    value.set(a.location, (value.get(a.location) ?? 0) + a.strength * engaged);
+  }
+  const best = [...value].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+  if (!best || best[1] < 3 || strikeError(s, world, f.id, best[0])) return s;
+  return apply(s, { action: { type: 'strike', army: f.id, target: best[0] }, actor: f.owner });
 }
 
 /** In peacetime, once a week: keep a guard at the capital and line borders facing hostile neighbours. */

@@ -566,3 +566,6 @@ button { font: inherit; color: inherit; }
 .beta-input:focus { outline: none; border-color: var(--accent); }
 .beta-form .main-btn:disabled { opacity: 0.6; cursor: wait; }
 .beta-error { min-height: 1.2em; margin: 0; color: var(--danger); font-size: 14px; }
+
+/* choosing a strike target */
+body.targeting canvas { cursor: crosshair !important; }

@@ -19,6 +19,21 @@ export interface UnitTypeDef {
   attack: number;
   defense: number;
   speed: number; // map units per in-game day
+  /** 'sea' units are fleets: they sail along coasts and sea lanes, fight other fleets and guard the sea for landings. */
+  domain?: 'land' | 'sea';
+  /** Fleets only: guns that shell enemy troops on the coast the fleet lies off (damage multiplier). */
+  bombard?: number;
+  /** Fleets only: carrier aircraft or missiles that hit a province within range, then reload. */
+  strike?: StrikeDef;
+}
+
+export interface StrikeDef {
+  kind: 'air' | 'missile';
+  /** Map units from the fleet's position (about 6.7 km each). */
+  range: number;
+  /** Strength points destroyed by a full-strength fleet's strike. */
+  power: number;
+  cooldownHours: number;
 }
 
 /** The voice of the AI Assessor for this era. */
@@ -57,12 +72,14 @@ export interface NationDef {
   military?: number;
   /** AI appetite for wars of expansion, 0..1. Default 0.4 for majors, 0.15 otherwise. */
   aggression?: number;
-  /** Naval strength 0..1; landings against this nation are harder. Default 0.1. */
+  /** Naval power 0..1: sets the size of the nation's fleet (about 6 fleets at 1). Default 0.1. */
   naval?: number;
   /** Combat quality multiplier, default 1 (e.g. 1.3 for 1939 Germany's doctrine). */
   quality?: number;
   /** Unit types raised, cycled in order. Default: the scenario's first unit type. */
   units?: string[];
+  /** Fleet types built, cycled in order. Default: all of the era's fleet types. Fleet count follows `naval`. */
+  fleets?: string[];
   leader?: LeaderPersona;
 }
 

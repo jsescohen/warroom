@@ -41,8 +41,9 @@ describe('nation AI', () => {
   it('honours historical alliances without dragging allies into unrelated wars', () => {
     const s = tick(fresh(), 4 * 20);
     expect(atWar(s, 'GBR', 'GER')).toBe(true);
-    expect(atWar(s, 'SOV', 'POL')).toBe(true);
-    expect(atWar(s, 'GBR', 'SOV')).toBe(false); // the USSR's war on Poland is a separate war
+    // the USSR invaded Poland (which may have capitulated since) in a war of its own
+    expect(s.events.some((e) => e.kind === 'war' && e.nations?.[0] === 'SOV' && e.nations?.[1] === 'POL')).toBe(true);
+    expect(atWar(s, 'GBR', 'SOV')).toBe(false);
   });
 
   it('waits out the opening before starting wars of its own', () => {

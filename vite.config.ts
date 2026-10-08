@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -7,4 +8,6 @@ export default defineConfig({
       '/api': { target: `http://localhost:${process.env.API_PORT ?? 8787}`, changeOrigin: true },
     },
   },
+  // whole-world simulations take a few seconds each
+  test: { testTimeout: 30_000 },
 });
