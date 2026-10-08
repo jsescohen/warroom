@@ -10,7 +10,7 @@ import { GameLoop } from './game/loop';
 import { apiFetch } from './auth/account';
 import { getSave, validateSave, type SaveRecord } from './game/saves';
 import { AchievementTracker } from './game/achievements';
-import { installErrorReports, setErrorContext } from './game/errorReports';
+import { installErrorReports, reportError, setErrorContext } from './game/errorReports';
 import { trackPlayStats } from './game/playStats';
 import { GameSession } from './game/session';
 import { formatDate } from './core/time';
@@ -106,12 +106,30 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   document.title = `${scenario.name} — Warroom Beta`;
 
   const stage = h('div', { class: 'map-stage' });
+  const bar = h('i');
+  const barLabel = h('span', null, 'Loading the map…');
   const loading = h('div', { class: 'loading era-loading' },
-    h('div', null, h('div', { class: 'eyebrow' }, saved ? 'Loading saved game' : 'New game'), h('h2', null, scenario.name), h('p', { class: 'dim' }, scenario.subtitle)));
+    h('div', null, h('div', { class: 'eyebrow' }, saved ? 'Loading saved game' : 'New game'), h('h2', null, scenario.name), h('p', { class: 'dim' }, scenario.subtitle),
+      h('div', { class: 'load-bar' }, bar), barLabel));
   root.append(stage, loading);
 
   // Labels are rasterised by Pixi, so make sure the era's web fonts are ready first.
-  const [rawMap] = await Promise.all([loadMap(scenario.map), themeFontsReady(theme)]);
+  let rawMap;
+  try {
+    [rawMap] = await Promise.all([
+      loadMap(scenario.map, (f) => {
+        bar.style.width = f < 0 ? '60%' : `${Math.round(f * 100)}%`;
+        bar.classList.toggle('indeterminate', f < 0);
+      }),
+      themeFontsReady(theme),
+    ]);
+  } catch (e) {
+    reportError(e, 'map-load');
+    barLabel.textContent = (e as Error).message;
+    loading.firstElementChild!.append(h('div', { class: 'load-actions' }, h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Try again'), h('button', { class: 'btn', onclick: go.menu }, 'Main menu')));
+    return;
+  }
+  barLabel.textContent = 'Building the world…';
   const map = applyProvinceNames(rawMap, scenario.provinceNames);
   const world = buildWorldFromMap(map, scenario.unitTypes);
 

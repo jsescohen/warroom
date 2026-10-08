@@ -40,7 +40,7 @@ export function openLedger(store: GameStore) {
     if (tab !== 'powers') {
       const { series, xLabels } = historySeries(s, tab === 'territory' ? 'p' : 'a');
       return fill(content,
-        h('p', { class: 'setting-hint' }, tab === 'territory' ? 'Provinces held, week by week.' : 'Total strength of armies and fleets, week by week.'),
+        h('p', { class: 'setting-hint' }, tab === 'territory' ? 'Provinces held, week by week.' : 'Total strength of all forces, week by week.'),
         lineChart(series, xLabels, { title: tab === 'territory' ? 'Territory' : 'Military strength' }),
         legend(series),
       );

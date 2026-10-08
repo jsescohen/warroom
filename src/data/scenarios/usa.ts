@@ -80,9 +80,8 @@ export const usa: ScenarioDef = {
   unitTypes: [
     { id: 'infantry', name: 'National Guard Brigade', short: 'Guard Brigade', attack: 3.5, defense: 5, speed: 30 },
     { id: 'armor', name: 'Armored Battalion', short: 'Armor', attack: 6.5, defense: 4, speed: 40 },
-    { id: 'drones', name: 'Drone Squadron', short: 'Drones', attack: 5, defense: 1.5, speed: 90 },
-    { id: 'air', name: 'Air National Guard Wing', short: 'Air Wing', attack: 6, defense: 2, speed: 160 },
-    { id: 'destroyers', name: 'Coastal Squadron', short: 'Coastal Squadron', attack: 4, defense: 4, speed: 90, domain: 'sea', bombard: 1, strike: { kind: 'missile', range: 120, power: 1.2, cooldownHours: 72 } },
+    { id: 'drones', name: 'Drone Squadron', short: 'Drones', attack: 5, defense: 1.5, speed: 90, strike: { kind: 'missile', range: 80, power: 0.7, cooldownHours: 48 } },
+    { id: 'air', name: 'Air National Guard Wing', short: 'Air Wing', attack: 6, defense: 2, speed: 160, strike: { kind: 'air', range: 110, power: 1.1, cooldownHours: 48 } },
   ],
   nations,
   treaties: blocs.map((parties) => ({ type: 'alliance' as const, parties })),

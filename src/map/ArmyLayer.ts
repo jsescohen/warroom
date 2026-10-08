@@ -226,7 +226,7 @@ export class ArmyLayer {
     g.roundRect(-W / 2, -H / 2, W, H, radius).fill(color).stroke({ width: rel === 'other' ? 1.2 : 1.8, color: edge });
     // darker strip behind the symbol for contrast
     g.roundRect(-W / 2 + 2, -H / 2 + 2, 18, H - 4, 2).fill({ color: 0x000000, alpha: 0.28 });
-    drawUnitSymbol(g, a.unitType, -W / 2 + 11, 0, 13, 9, 0xffffff);
+    drawUnitSymbol(g, a.unitType, -W / 2 + 11, -0.5, 15, 11, 0xffffff);
     // strength bar
     const frac = Math.max(0, Math.min(1, a.strength / a.maxStrength));
     g.rect(-W / 2 + 2, H / 2 - 3, (W - 4) * frac, 2).fill(frac > 0.6 ? 0x9ccf6a : frac > 0.3 ? 0xe2b64a : 0xe0533d);

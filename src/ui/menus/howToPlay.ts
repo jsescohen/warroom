@@ -20,7 +20,8 @@ const SECTIONS: Section[] = [
     id: 'armies', label: 'Armies',
     items: [
       ['Move', 'Drag one of your counters to a province, or click it and then click (or right-click) the destination. The dashed line shows the route and how long it takes.'],
-      ['Counters', 'The number is the army’s strength (10 when full); the bar underneath is its health. The symbol shows the type: infantry ✕, armour ⬭, artillery ●, cavalry ╱, air, ships.'],
+      ['Counters', 'The number is the army’s strength (10 when full); the bar underneath is its health. Hover a counter to see exactly what it is.'],
+      ['Symbols', 'Helmet: infantry · shield: ancient foot soldiers · tank: armour · cannon: artillery · horseshoe: cavalry · wheel: chariots · bow: archers · plane: air force · quadcopter: drones.'],
       ['Types', 'Each era has its own troops. Fast attackers (armour, cavalry, chariots) hit hard; infantry and pikes hold ground; artillery is slow but powerful.'],
       ['Battles', 'Enemy armies in the same province fight by themselves until one side is gone or leaves. Defending your own land gives a bonus, a capital even more.'],
       ['Healing', 'Damaged armies recover slowly in your own or allied land, away from fighting.'],
@@ -40,15 +41,13 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    id: 'sea', label: 'Fleets',
+    id: 'sea', label: 'Water & air',
     items: [
-      ['Fleets', 'Rounded counters under ports. Drag them along coasts like armies; they can sail past neutral shores but never capture land.'],
-      ['Naval battles', 'Enemy fleets that meet fight, like armies do.'],
-      ['Sea control', 'Your troops can only cross a sea where the enemy navy is not clearly stronger. Troopships caught by enemy fleets take heavy losses, so escort landings with your own fleet.'],
-      ['Landings', 'Troops coming ashore fight at a disadvantage for two days.'],
-      ['Guns (from 1500)', 'Ships with cannon or big guns help your own troops fighting on the coast they lie off.'],
-      ['Strikes (WW2, modern)', 'Carriers and missile ships: select the fleet, press "Air strike…" or "Missile strike…", then click a target inside the orange ring. Esc cancels. They then need time to rearm.'],
-      ['Ancient fleets', 'Galleys, triremes and dromons only fight other fleets and guard the sea.'],
+      ['Crossing water', 'Armies cross seas and straits along sea lanes (the routes the dashed line follows over water). It is slower than marching over land.'],
+      ['Landings', 'Troops coming ashore in enemy land fight at a disadvantage for two days, so land where the enemy is weak.'],
+      ['Air strikes (WW2, today)', 'Air units and drones can strike: select one, press "Air strike…" or "Drone strike…", then click a target inside the orange ring. Esc cancels. They then need time to rearm.'],
+      ['What strikes do', 'A strike damages every enemy unit in the target province (and wears down its garrison). Use them before an attack, or to break an enemy offensive.'],
+      ['Older eras', 'Before the 20th century there are no air units: wars are won on the ground.'],
     ],
   },
   {

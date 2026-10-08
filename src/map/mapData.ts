@@ -48,10 +48,47 @@ interface MapFile {
   land?: number[][][];
 }
 
-export async function loadMap(url: string): Promise<MapData> {
-  const res = await apiFetch(url);
-  if (!res.ok) throw new Error(`Failed to load map ${url}: ${res.status}`);
-  return parseMap(url, (await res.json()) as MapFile);
+/**
+ * Downloads a map (1–3 MB of JSON, compressed on the wire), reporting progress (0..1, or -1 when
+ * the size is unknown), and gives up after a while instead of hanging.
+ */
+export async function loadMap(url: string, onProgress?: (fraction: number) => void, timeoutMs = 45_000): Promise<MapData> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await apiFetch(url, { signal: ac.signal });
+    if (res.status === 401 || res.status === 403) throw new Error('The server did not let this browser load the map: sign out and in again.');
+    if (!res.ok) throw new Error(`The map could not be loaded (HTTP ${res.status}).`);
+    // raw (decompressed) size is unknown when the server compresses; count what arrives
+    const total = Number(res.headers.get('x-raw-length') ?? 0);
+    let text: string;
+    if (res.body && onProgress) {
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        onProgress(total ? Math.min(1, got / total) : -1);
+      }
+      text = new TextDecoder().decode(concat(chunks, got));
+    } else text = await res.text();
+    return parseMap(url, JSON.parse(text) as MapFile);
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw new Error('The map is taking too long to download. Check your connection and try again.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function concat(chunks: Uint8Array[], size: number): Uint8Array {
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
 }
 
 export function parseMap(id: string, file: MapFile): MapData {

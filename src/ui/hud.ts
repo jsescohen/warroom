@@ -18,6 +18,7 @@ import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
+import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
 import { fill, h, swatch } from './dom';
 import { leaderOf } from '../ai/diplomacyPrompt';
 import { DiplomacyDirector } from '../game/diplomacyDirector';
@@ -45,9 +46,10 @@ export class Hud {
   private diploBtn = h('button', { class: 'btn diplo-btn', title: 'Diplomacy (D)' }, 'Diplomacy');
   private speedBeforeDiplomacy: Speed = 0;
   private mapMode: MapMode = 'political';
+  private hoveredArmy: string | null = null;
   private renderModes = () => {};
 
-  /** Fleet choosing a target for its strike (the next province clicked). */
+  /** Unit choosing a target for its strike (the next province clicked). */
   private targeting: string | null = null;
 
   constructor(
@@ -203,6 +205,10 @@ export class Hud {
       const group = this.ownSelectedArmies();
       if (group.length && id) void this.orderGroup(group, id);
     });
+    renderer.onArmyHover((id) => {
+      this.hoveredArmy = id;
+      this.renderTip();
+    });
     renderer.on('hover', (id) => {
       this.hovered = id;
       this.renderTip();
@@ -285,7 +291,7 @@ export class Hud {
     this.targeting = army;
     this.renderer.setStrikeRange(army, strike.range);
     document.body.classList.add('targeting');
-    this.toast(`Choose a target for the ${strike.kind === 'air' ? 'air' : 'missile'} strike inside the ring. Esc cancels.`, 'info');
+    this.toast(`Choose a target for the ${strike.kind === 'air' ? 'air' : 'drone'} strike inside the ring. Esc cancels.`, 'info');
   }
 
   private endStrike() {
@@ -575,6 +581,19 @@ export class Hud {
 
   /** Hover tooltip; with one of your armies selected it previews the route and ETA. */
   private renderTip() {
+    // a counter under the pointer: what it is
+    const ha = this.hoveredArmy ? this.state.armies[this.hoveredArmy] : null;
+    if (ha && !this.targeting) {
+      const s = this.state, unit = this.store.world.unitTypes[ha.unitType];
+      const owner = s.nations[ha.owner];
+      this.tip.replaceChildren(swatch(owner.color), h('strong', null, ha.name), h('span', { class: 'dim' }, owner.shortName),
+        h('span', { class: 'tip-line' }, `${unit?.name ?? ha.unitType} (${SYMBOL_NAMES[symbolOf(ha.unitType)]})`),
+        h('span', { class: 'tip-line dim' }, `Strength ${ha.strength.toFixed(1)} / ${ha.maxStrength.toFixed(0)}${unit ? ` · attack ${unit.attack} · defence ${unit.defense}` : ''}${unit?.strike ? ' · can strike' : ''}`));
+      this.tip.style.display = 'flex';
+      this.tip.style.left = `${this.mouse.x}px`;
+      this.tip.style.top = `${this.mouse.y}px`;
+      return;
+    }
     const id = this.hovered;
     if (!id) {
       this.tip.style.display = 'none';

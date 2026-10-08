@@ -27,7 +27,7 @@ export interface PanelActions {
   declareWar(target: NationId): void;
   selectArmy(id: string): void;
   armyOrder(type: 'stopArmy' | 'splitArmy' | 'mergeArmies', army: string): void;
-  /** Start choosing a target for a fleet's strike. */
+  /** Start choosing a target for a unit's strike (air units, drones). */
   strike(army: string): void;
   /** Orders for a selected group: halt all, merge where possible, or clear the selection. */
   groupOrder(type: 'stop' | 'merge' | 'clear', ids: string[]): void;
@@ -109,7 +109,7 @@ export class SidePanel {
         unit ? h('dt', null, 'Attack · Def') : null, unit ? h('dd', null, `${unit.attack} · ${unit.defense}  ·  speed ${unit.speed}`) : null,
         h('dt', null, 'Status'), h('dd', null, status),
         abilities ? h('dt', null, 'Role') : null, abilities ? h('dd', null, abilities) : null,
-        strike ? h('dt', null, strike.kind === 'air' ? 'Air wing' : 'Missiles') : null,
+        strike ? h('dt', null, strike.kind === 'air' ? 'Air strike' : 'Drone strike') : null,
         strike ? h('dd', null, ready ? h('span', { class: 'ok-text' }, 'Ready') : `${strike.kind === 'air' ? 'Rearming' : 'Reloading'} — ${formatDuration((a.readyAt ?? 0) - s.clock.hours)}`) : null,
       ),
       mine ? h('p', { class: 'hint' }, fleet
@@ -123,7 +123,7 @@ export class SidePanel {
     const key = `army|${a.id}|${moving}|${canMerge}|${a.strength >= 2}|${ready}`;
     this.setActions(key, [
       strike ? h('button', { class: 'btn danger', disabled: !ready || a.progress > 0, title: 'Choose a target within range (Esc cancels)', onclick: () => this.act.strike(a.id) },
-        strike.kind === 'air' ? 'Air strike…' : 'Missile strike…') : null,
+        strike.kind === 'air' ? 'Air strike…' : 'Drone strike…') : null,
       moving ? h('button', { class: 'btn', title: 'Stop and hold where it is (it finishes the stretch it is on)', onclick: () => this.act.armyOrder('stopArmy', a.id) }, 'Halt') : null,
       a.strength >= 2 ? h('button', { class: 'btn', title: 'Split into two armies of half strength', onclick: () => this.act.armyOrder('splitArmy', a.id) }, 'Split') : null,
       canMerge ? h('button', { class: 'btn', title: 'Merge idle armies of the same type here', onclick: () => this.act.armyOrder('mergeArmies', a.id) }, 'Merge') : null,

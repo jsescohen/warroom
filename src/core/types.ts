@@ -63,7 +63,7 @@ export interface Army {
   progress: number;
   /** Clock hour until which the army is still disembarking from a sea landing (weaker attack). */
   landedUntil?: number;
-  /** Fleets with strikes: clock hour when the next strike is ready. */
+  /** Units with strikes (air wings, drones): clock hour when the next strike is ready. */
   readyAt?: number;
 }
 

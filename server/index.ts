@@ -1,3 +1,4 @@
+import compression from 'compression';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,8 @@ import { LLMService, TimeoutError } from './llm/service';
 import { ProviderError } from './llm/types';
 
 const app = express();
+// maps are ~2 MB of JSON: gzip makes them about a quarter of that
+app.use(compression());
 // a saved game is ~120 KB of JSON (more late in a long game)
 app.use('/api/saves', express.json({ limit: '4mb' }));
 app.use('/api/feedback', express.json({ limit: '4mb' })); // may carry the tester's game
@@ -100,7 +103,12 @@ app.post('/api/ai/task', async (req, res) => {
 const dist = fileURLToPath(new URL('../dist', import.meta.url));
 if (config.production && existsSync(dist)) {
   app.use('/maps', requireAccess);
-  app.use(express.static(dist, { index: 'index.html', maxAge: '1h' }));
+  app.use(express.static(dist, {
+    index: 'index.html',
+    maxAge: '1h',
+    // the loading bar needs the real size, which a compressed response hides
+    setHeaders: (res, file, stat) => { if (file.endsWith('.json')) res.setHeader('x-raw-length', String(stat.size)); },
+  }));
   app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: dist }));
 }
 

@@ -22,6 +22,8 @@ const OPENING_DAYS = 14;
 const WAR_COOLDOWN_DAYS = 10;
 /** Armies further than this (map units) are not considered for a task. */
 const MAX_TASK_DIST = 380;
+/** Days a nation regroups after forcing an enemy to capitulate, before a new offensive. */
+const REGROUP_DAYS = 120;
 
 export function aiTick(state: GameState, world: World, apply: Apply): GameState {
   const ticksPerDay = Math.max(1, Math.round(24 / state.clock.tickHours));
@@ -33,6 +35,7 @@ export function aiTick(state: GameState, world: World, apply: Apply): GameState 
     if (i % ticksPerDay !== slot || !s.nations[n]?.alive) return;
     s = planArmies(s, world, n, apply, day);
     s = planFleets(s, world, n, apply, day);
+    s = planStrikes(s, world, n, apply);
     if ((day + i) % 7 === 0) s = strategize(s, world, n, apply, day);
   });
   if (slot === 0 && day > 0 && day % 30 === 0) s = driftRelations(s);
@@ -164,14 +167,30 @@ function planArmies(state: GameState, world: World, n: NationId, apply: Apply, d
     return nearest.get(t)!;
   };
   const inReach = (t: ProvinceId) => nearestFree(t) <= MAX_TASK_DIST;
-  const reachable = new Set([...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || !outclassed(owner(t)))));
+  const shares = new Map<NationId, number>();
+  const coreShare = (o: NationId) => {
+    if (!shares.has(o)) {
+      let total = 0, held = 0;
+      for (const ps of Object.values(s.provinces)) if (ps.core === o) { total++; if (ps.owner === o) held++; }
+      shares.set(o, total ? held / total : 1);
+    }
+    return shares.get(o)!;
+  };
+  const candidates = [...byLand, ...seaOnly].filter((t) => inReach(t) && (!cautious || s.provinces[t].core === n || !outclassed(owner(t))));
+  // one front at a time: while an enemy is collapsing (holding under 90% of its land), finish it
+  // before opening an offensive against a fresh one (retaking our own land is always allowed)
+  const collapsing = new Set(enemies.filter((e) => coreShare(e) < 0.9));
+  // after forcing a surrender, regroup for a season before opening a new offensive
+  const regrouping = s.events.some((e) => e.kind === 'capitulation' && e.nations?.[1] === n && s.clock.hours - e.at < REGROUP_DAYS * 24);
+  const reachable = new Set(regrouping ? candidates.filter((t) => s.provinces[t].core === n) : collapsing.size ? candidates.filter((t) => collapsing.has(owner(t)) || s.provinces[t].core === n) : candidates);
   const targets = [...reachable]
     .map((t) => {
       const defense = ((enemyDefAt.get(t) ?? 0) + garrisonPower(s, t)) * 1.2;
       const support = world.provinces[t].links.reduce((x, l) => x + (enemyAt.get(l.to) ?? 0) * 0.8, 0); // neighbours reinforce
       // capitals and our own lost provinces (above all our old capital) are worth the most
       const lost = s.provinces[t].core === n;
-      const value = 1 + (s.nations[owner(t)]?.capital === t ? 4 : 0) + (lost ? 3 : 0) + Math.sqrt(world.provinces[t].area) / 20;
+      // finish off a beaten enemy before opening new fronts: the less of its own land it holds, the more it is worth
+      const value = 1 + (s.nations[owner(t)]?.capital === t ? 4 : 0) + (lost ? 3 : 0) + Math.sqrt(world.provinces[t].area) / 20 + 4 * (1 - coreShare(owner(t)));
       // nearby objectives first: a far-off one ties up armies on the march for weeks
       return { t, defense: defense + support, score: value / (1 + (defense + support) / 30) / (1 + nearestFree(t) / 150) };
     })
@@ -282,14 +301,28 @@ function planFleets(state: GameState, world: World, n: NationId, apply: Apply, d
   return s;
 }
 
-/** Carriers and missile ships hit the strongest enemy force in range, preferring the battle lines. */
+/** Air wings and drones (and any fleet with aircraft) strike when ready, at war. */
+function planStrikes(state: GameState, world: World, n: NationId, apply: Apply): GameState {
+  let s = state;
+  const enemies = new Set(Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e)));
+  if (!enemies.size) return s;
+  for (const a of Object.values(s.armies).filter((x) => x.owner === n && !isFleet(world, x.unitType) && world.unitTypes[x.unitType]?.strike).sort((x, y) => (x.id < y.id ? -1 : 1))) {
+    if (s.armies[a.id]) s = aiStrike(s, world, s.armies[a.id], apply, (o) => enemies.has(o));
+  }
+  return s;
+}
+
+/** Strikers hit the strongest enemy force in range, preferring the battle lines. */
 function aiStrike(s: GameState, world: World, f: Army, apply: Apply, isEnemy: (o: NationId) => boolean): GameState {
   const strike = world.unitTypes[f.unitType]?.strike;
   if (!strike || f.progress > 0 || (f.readyAt ?? 0) > s.clock.hours) return s;
   const value = new Map<ProvinceId, number>();
   for (const a of Object.values(s.armies)) {
     if (!isEnemy(a.owner) || a.progress > 0 || dist(world, f.location, a.location) > strike.range) continue;
-    const engaged = s.battles[a.location] !== undefined ? 2 : 1;
+    // only where the war is actually being fought: a battle, or enemy troops on our side's soil
+    const fighting = s.battles[a.location] !== undefined;
+    if (!fighting && !friendly(s, f.owner, s.provinces[a.location].owner)) continue;
+    const engaged = fighting ? 2 : 1;
     value.set(a.location, (value.get(a.location) ?? 0) + a.strength * engaged);
   }
   const best = [...value].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];

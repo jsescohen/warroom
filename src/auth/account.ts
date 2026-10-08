@@ -33,6 +33,12 @@ const DEV_TOKEN_KEY = 'warroom.devToken';
 let access: Access = { mode: 'open' };
 let supabase: SupabaseClient | null = null;
 let me: Me | null = null;
+let cachedToken: string | null = null;
+
+/** Resolves with the fallback if the promise takes longer than `ms`. */
+function withTimeout<T, F>(p: Promise<T>, ms: number, fallback: F): Promise<T | { data: F }> {
+  return Promise.race([p, new Promise<{ data: F }>((r) => setTimeout(() => r({ data: fallback }), ms))]);
+}
 
 export const getAccess = () => access;
 export const currentUser = () => me;
@@ -55,7 +61,11 @@ export async function initAccess(): Promise<Access> {
     const { createClient } = await import('@supabase/supabase-js');
     // PKCE: after Google/Discord the browser returns with ?code=…, which the client exchanges
     supabase = createClient(access.supabaseUrl, access.supabaseAnonKey, { auth: { flowType: 'pkce', persistSession: true, detectSessionInUrl: true } });
-    await supabase.auth.getSession();
+    // keep the current token in memory: asking the library before every request can stall behind its
+    // cross-tab lock (two tabs open), which once left the map download waiting forever
+    const { data } = await withTimeout(supabase.auth.getSession(), 8000, null);
+    cachedToken = data?.session?.access_token ?? null;
+    supabase.auth.onAuthStateChange((_event, session) => { cachedToken = session?.access_token ?? null; });
     // tidy the address bar after the sign-in redirect
     if (new URLSearchParams(location.search).has('code')) history.replaceState(null, '', location.pathname);
   }
@@ -64,7 +74,7 @@ export async function initAccess(): Promise<Access> {
 
 async function token(): Promise<string | null> {
   if (access.mode !== 'accounts') return null;
-  if (supabase) return (await supabase.auth.getSession()).data.session?.access_token ?? null;
+  if (supabase) return cachedToken;
   if (access.dev) {
     try { return localStorage.getItem(DEV_TOKEN_KEY); } catch { return null; }
   }

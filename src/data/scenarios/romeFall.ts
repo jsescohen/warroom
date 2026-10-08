@@ -24,7 +24,6 @@ export const romeFall: ScenarioDef = {
     { id: 'foederati', name: 'Federate Warriors', short: 'Warband', attack: 3.5, defense: 2.5, speed: 5 },
     { id: 'cavalry', name: 'Heavy Cavalry', short: 'Cataphracts', attack: 4.5, defense: 2.5, speed: 9 },
     { id: 'horse-archers', name: 'Horse Archers', short: 'Horde', attack: 4.5, defense: 2, speed: 11 },
-    { id: 'dromons', name: 'Dromon Squadron', short: 'Fleet', attack: 3, defense: 3, speed: 14, domain: 'sea' },
   ],
   nations: [
     {

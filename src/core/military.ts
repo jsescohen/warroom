@@ -571,10 +571,10 @@ export function strikeError(s: GameState, world: World, fleetId: ArmyId, target:
   const a = s.armies[fleetId];
   if (!a) return 'That fleet no longer exists';
   const strike = world.unitTypes[a.unitType]?.strike;
-  if (!strike) return 'This fleet has no strike capability in this era';
+  if (!strike) return 'This unit cannot strike: air units can';
   if (!world.provinces[target]) return 'Unknown province';
-  if (a.progress > 0) return 'The fleet is under way: strikes are launched from a station';
-  if ((a.readyAt ?? 0) > s.clock.hours) return `${strike.kind === 'air' ? 'Aircraft are rearming' : 'Missiles are reloading'}: ready in ${Math.ceil((a.readyAt! - s.clock.hours))} h`;
+  if (a.progress > 0) return 'Units on the move cannot strike: halt first';
+  if ((a.readyAt ?? 0) > s.clock.hours) return `${strike.kind === 'air' ? 'Aircraft are rearming' : 'Drones are rearming'}: ready in ${Math.ceil((a.readyAt! - s.clock.hours))} h`;
   const from = world.provinces[a.location].label, to = world.provinces[target].label;
   if (Math.hypot(from[0] - to[0], from[1] - to[1]) > strike.range) return 'Out of range';
   if (!strikeTargets(s, a.owner, target).length && !(atWar(s, a.owner, s.provinces[target].owner) && garrisonOf(s, target) > 0.05))
@@ -609,7 +609,7 @@ export function applyStrike(state: GameState, world: World, fleetId: ArmyId, tar
   const victims = [...new Set([...units.map((u) => u.owner), s.provinces[target].owner])].filter((n) => atWar(s, a.owner, n));
   const player = s.playerNation;
   if (player && (a.owner === player || victims.includes(player))) {
-    const what = strike.kind === 'air' ? 'Carrier air strike' : 'Missile strike';
+    const what = strike.kind === 'air' ? 'Air strike' : 'Drone strike';
     const sunk = lost.length ? ` ${lost.join(', ')} destroyed.` : '';
     s = log(s, { kind: 'strike', text: `${what} by ${s.nations[a.owner].shortName} on ${provinceName(world, target)}: ${total.toFixed(1)} strength lost.${sunk}`, nations: [a.owner, ...victims], important: victims.includes(player) });
   }

@@ -594,3 +594,11 @@ body.targeting canvas { cursor: crosshair !important; }
 .tutorial-waiting { color: var(--accent); font-size: 12.5px; font-style: italic; }
 .tutorial-progress { height: 3px; margin: 6px -16px 0; background: var(--panel-2); }
 .tutorial-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+
+/* map loading bar */
+.load-bar { width: min(320px, 70vw); height: 3px; margin: 16px auto 8px; background: rgba(0, 0, 0, 0.25); overflow: hidden; }
+.load-bar i { display: block; height: 100%; width: 4%; background: var(--accent); transition: width 0.2s; }
+.load-bar i.indeterminate { animation: load-slide 1.2s ease-in-out infinite alternate; }
+@keyframes load-slide { from { transform: translateX(-60%); } to { transform: translateX(110%); } }
+.era-loading span { font-size: 13px; color: var(--text-dim); }
+.load-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }

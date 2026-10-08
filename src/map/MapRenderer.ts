@@ -87,6 +87,13 @@ export class MapRenderer {
   }
 
   private boxHandlers = new Set<(ids: string[]) => void>();
+  private armyHoverHandlers = new Set<(id: string | null) => void>();
+  private hoveredArmy: string | null = null;
+  /** The army counter under the pointer (or null). */
+  onArmyHover(h: (id: string | null) => void) {
+    this.armyHoverHandlers.add(h);
+    return () => this.armyHoverHandlers.delete(h);
+  }
   /** Shift+drag on the map: armies inside the box. */
   onBox(h: (ids: string[]) => void) {
     this.boxHandlers.add(h);
@@ -580,7 +587,12 @@ export class MapRenderer {
     canvas.addEventListener('pointermove', (e) => {
       const p = rel(e);
       const prev = pointers.get(e.pointerId);
-      if (!prev) { this.setHover(this.pick(p.x, p.y)?.index ?? null); return; }
+      if (!prev) {
+        const army = this.armies.pick(p.x, p.y);
+        if (army !== this.hoveredArmy) { this.hoveredArmy = army; this.armyHoverHandlers.forEach((h) => h(army)); }
+        this.setHover(this.pick(p.x, p.y)?.index ?? null);
+        return;
+      }
       pointers.set(e.pointerId, p);
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];

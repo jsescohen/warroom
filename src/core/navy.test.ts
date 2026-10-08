@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { reduce, validate, type Action } from './actions';
-import { byName, fresh, world } from './fixture.test-util';
+import { byName, map } from './fixture.test-util';
+import { ww2 } from '../data/scenarios/ww2';
+import type { UnitTypeDef } from './scenario';
+import { createInitialState } from './state';
+import { buildWorldFromMap, provinceMeta } from '../map/mapData';
 import { findPath, garrisonMax, garrisonOf, homePort, isFleet, seaDenied, strikeError } from './military';
 import { scenarios } from '../data/scenarios';
 import type { Army, GameState } from './types';
+
+// The fleet engine is kept (fleets may return); these test units exercise it.
+const FLEETS: UnitTypeDef[] = [
+  { id: 'battleships', name: 'Battle Fleet', short: 'Fleet', attack: 5, defense: 5, speed: 80, domain: 'sea', bombard: 2 },
+  { id: 'carriers', name: 'Carrier Task Force', short: 'Task Force', attack: 4, defense: 3, speed: 90, domain: 'sea', strike: { kind: 'air', range: 70, power: 1.5, cooldownHours: 48 } },
+];
+const navalWW2 = { ...ww2, unitTypes: [...ww2.unitTypes, ...FLEETS], nations: ww2.nations.map((n) => (['GER', 'ITA', 'SOV', 'FRA'].includes(n.id) ? { ...n, fleets: ['battleships'] } : n)) };
+const world = buildWorldFromMap(map, navalWW2.unitTypes);
+const fresh = () => createInitialState(navalWW2, map.id, map.provinces.map((p) => ({ ...provinceMeta(p), pop: p.pop })), world);
 
 const act = (s: GameState, action: Action, actor: string) => {
   const err = validate(s, { action, actor }, world);
@@ -124,21 +137,16 @@ describe('fleets', () => {
     expect(strikeError(s, world, 'cv', byName('Moscow').id)).toMatch(/range/);
     // battleships have no aircraft
     s = place(s, { id: 'bb', owner: 'GBR', location: target, unitType: 'battleships' });
-    expect(strikeError(s, world, 'bb', target)).toMatch(/no strike/);
+    expect(strikeError(s, world, 'bb', target)).toMatch(/cannot strike/);
   });
 });
 
-describe('era gating', () => {
-  it('ancient fleets only fight; guns arrive with gunpowder, aircraft and missiles in the 20th century', () => {
-    const fleetsIn = (id: string) => scenarios.find((s) => s.id === id)!.unitTypes.filter((u) => u.domain === 'sea');
-    for (const era of ['bronze', 'rome-rise', 'rome-fall']) {
-      const f = fleetsIn(era);
-      expect(f.length).toBeGreaterThan(0);
-      expect(f.every((u) => !u.bombard && !u.strike)).toBe(true);
-    }
-    expect(fleetsIn('renaissance').every((u) => u.bombard && !u.strike)).toBe(true);
-    expect(fleetsIn('ww1').every((u) => u.bombard && !u.strike)).toBe(true);
-    expect(fleetsIn('ww2').some((u) => u.strike?.kind === 'air')).toBe(true);
-    expect(fleetsIn('modern').some((u) => u.strike?.kind === 'missile')).toBe(true);
+describe('air strikes', () => {
+  it('belong to the air units of the 20th and 21st centuries, and no era fields fleets', () => {
+    for (const sc of scenarios) expect(sc.unitTypes.some((u) => u.domain === 'sea')).toBe(false);
+    const strikers = (id: string) => scenarios.find((s) => s.id === id)!.unitTypes.filter((u) => u.strike).map((u) => u.id);
+    for (const era of ['bronze', 'rome-rise', 'rome-fall', 'renaissance', 'ww1']) expect(strikers(era)).toEqual([]);
+    expect(strikers('ww2')).toEqual(['air']);
+    expect(strikers('modern').sort()).toEqual(['air', 'drones']);
   });
 });

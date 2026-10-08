@@ -26,8 +26,6 @@ export const renaissance: ScenarioDef = {
     { id: 'arquebusiers', name: 'Arquebusiers', short: 'Company', attack: 4, defense: 3, speed: 5 },
     { id: 'knights', name: 'Gendarmes', short: 'Lances', attack: 5, defense: 2.5, speed: 8 },
     { id: 'cannon', name: 'Artillery Train', short: 'Battery', attack: 6, defense: 1.5, speed: 3 },
-    // broadside cannon: the first ships that can shell a coast
-    { id: 'carracks', name: 'Carrack Squadron', short: 'Squadron', attack: 4, defense: 4, speed: 20, domain: 'sea', bombard: 1 },
   ],
   nations: [
     {
