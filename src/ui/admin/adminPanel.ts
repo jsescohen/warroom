@@ -1,6 +1,7 @@
 import { apiFetch, currentUser } from '../../auth/account';
 import { scenarios } from '../../data/scenarios';
 import type { SaveMeta } from '../../game/saves';
+import { consoleScreen } from '../console';
 import { fill, h } from '../dom';
 import { timeAgo } from '../menus/loadScreen';
 
@@ -31,8 +32,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * read-only. Live multiplayer games will be listed under "Games" once they exist.
  */
 export async function showAdminPanel(root: HTMLElement, actions: { menu(): void; spectate(user: string, save: string): void }) {
-  document.documentElement.dataset.theme = 'sepia';
-  document.title = 'Warroom Beta — Admin';
   if (!currentUser()?.admin) {
     root.replaceChildren(h('div', { class: 'loading' }, h('div', null, 'Admins only.', h('div', null, h('button', { class: 'btn', onclick: actions.menu }, 'Main menu')))));
     return;
@@ -143,13 +142,17 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
     fill(list, ...(shown.length ? shown.map(userRow) : [h('p', { class: 'dim' }, empty)]));
   };
 
-  root.replaceChildren(h('div', { class: 'admin-screen' },
-    h('header', { class: 'admin-head' },
-      h('button', { class: 'btn', onclick: actions.menu }, '← Main menu'),
-      h('div', null, h('div', { class: 'eyebrow' }, 'Warroom Beta'), h('h1', null, 'Admin panel')),
-      h('button', { class: 'btn', title: 'Reload the list', onclick: () => void load() }, 'Refresh'),
+  root.replaceChildren(consoleScreen({ page: 'admin', title: 'Warroom Beta — Admin', right: h('button', { class: 'cx-link', onclick: actions.menu }, '← Main menu') },
+    h('main', { class: 'cx-page' },
+      h('header', { class: 'cx-page-head row' },
+        h('div', null,
+          h('div', { class: 'cx-kicker' }, h('span', { class: 'cx-dot' }), 'Admin'),
+          h('h1', null, 'Players'),
+          h('p', null, 'Let new players in, block them, and open their saved games read-only.')),
+        h('button', { class: 'btn', title: 'Reload the list', onclick: () => void load() }, 'Refresh'),
+      ),
+      h('section', { class: 'cx-panel' }, tabs, status, list),
     ),
-    h('section', { class: 'panel admin-body' }, tabs, status, list),
   ));
   await load();
   if (!users.some((u) => u.status === 'pending')) { tab = 'approved'; render(); }

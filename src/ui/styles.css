@@ -409,29 +409,6 @@ button { font: inherit; color: inherit; }
   .diplo-header { grid-template-columns: auto 1fr; }
 }
 
-/* ---- step 7: era selection ------------------------------------------------------------------- */
-.eras-btn { padding: 6px 10px; font-size: 11px; }
-.era-screen { position: fixed; inset: 0; overflow-y: auto; padding: 40px 24px 60px; background: linear-gradient(180deg, #2b2c22, #17170f); }
-.era-head { max-width: 1180px; margin: 0 auto 28px; }
-.era-head h1 { font-family: var(--font-display); font-weight: 600; font-size: 44px; letter-spacing: 0.18em; text-transform: uppercase; margin: 0; color: var(--accent); }
-.era-head p { color: var(--text-dim); margin: 6px 0 0; font-size: 16px; }
-.era-grid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
-.era-card {
-  display: flex; flex-direction: column; text-align: left; padding: 0; overflow: hidden; cursor: pointer;
-  border-radius: 8px; border: 1px solid var(--panel-border); background: var(--panel); box-shadow: var(--shadow);
-  transition: transform 0.15s, border-color 0.15s;
-}
-.era-card:hover, .era-card:focus-visible { transform: translateY(-3px); border-color: var(--accent); outline: none; }
-.era-art { height: 120px; position: relative; }
-.era-year {
-  position: absolute; left: 14px; bottom: 8px; font-family: var(--font-display); font-size: 30px; font-weight: 600;
-  color: #fff; letter-spacing: 0.04em; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
-}
-.era-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; }
-.era-body h2 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 20px; letter-spacing: 0.05em; text-transform: uppercase; }
-.era-sub { color: var(--accent); font-size: 13px; }
-.era-body p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.45; }
-.era-powers { font-size: 12px; color: var(--text); opacity: 0.8; }
 
 /* ---- settings menu --------------------------------------------------------------------------- */
 .settings-btn { padding: 6px 10px; font-size: 11px; }
@@ -450,36 +427,6 @@ button { font: inherit; color: inherit; }
 .topbar, .side, .log, .zoom-controls, .toasts, .hover-tip, .modal, .diplo, .menu-panel, .nation-picker, .end-screen .end-card { zoom: var(--ui-scale, 1); }
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
 
-/* ---- step 8: main menu ----------------------------------------------------------------------- */
-.main-menu { position: fixed; inset: 0; display: grid; place-items: center; overflow: hidden; background: #14140d; }
-.main-bg {
-  position: absolute; inset: -40px;
-  background:
-    radial-gradient(ellipse at 50% 45%, transparent 30%, rgba(10, 10, 6, 0.85) 80%),
-    repeating-linear-gradient(0deg, rgba(210, 173, 91, 0.05) 0 1px, transparent 1px 48px),
-    repeating-linear-gradient(90deg, rgba(210, 173, 91, 0.05) 0 1px, transparent 1px 48px),
-    linear-gradient(160deg, #4a4630, #20201a 55%, #10100b);
-  animation: drift 60s linear infinite alternate;
-}
-@keyframes drift { to { transform: translate(-30px, -20px) scale(1.04); } }
-.main-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; text-align: center; width: min(460px, 100%); }
-.main-title {
-  margin: 0; font-family: var(--font-display); font-weight: 600; font-size: clamp(48px, 10vw, 84px);
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); text-shadow: 0 4px 30px rgba(210, 173, 91, 0.25);
-}
-.main-tagline { margin: 0 0 12px; color: var(--text-dim); font-size: 16px; }
-.main-buttons { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-.main-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: 12px 16px; cursor: pointer;
-  border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel); color: var(--text);
-  transition: border-color 0.15s, transform 0.15s;
-}
-.main-btn:hover, .main-btn:focus-visible { border-color: var(--accent); transform: translateY(-1px); outline: none; }
-.main-btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-.main-btn-label { font-family: var(--font-display); font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; }
-.main-btn-sub { font-size: 12px; opacity: 0.8; }
-.main-foot { margin-top: 14px; color: var(--text-dim); font-size: 12px; letter-spacing: 0.06em; }
-.era-head .btn { margin-bottom: 14px; }
 
 /* ---- menus: panels, tabs, rows ---------------------------------------------------------------- */
 .menu-panel { width: min(460px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 18px 20px; gap: 12px; }
@@ -559,14 +506,6 @@ button { font: inherit; color: inherit; }
   color: var(--accent); font-family: var(--font-display); font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase;
 }
 .beta-badge.small { margin: 0 0 0 8px; padding: 1px 6px; font-size: 10px; letter-spacing: 0.15em; vertical-align: middle; }
-.beta-form { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-.beta-input {
-  width: 100%; padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel); color: var(--text);
-  font-size: 18px; text-align: center; letter-spacing: 0.2em; text-transform: uppercase;
-}
-.beta-input:focus { outline: none; border-color: var(--accent); }
-.beta-form .main-btn:disabled { opacity: 0.6; cursor: wait; }
-.beta-error { min-height: 1.2em; margin: 0; color: var(--danger); font-size: 14px; }
 
 /* choosing a strike target */
 body.targeting canvas { cursor: crosshair !important; }
@@ -577,11 +516,8 @@ body.targeting canvas { cursor: crosshair !important; }
 .howto-list dt { font-family: var(--font-display); letter-spacing: 0.05em; color: var(--accent); font-size: 14px; padding-top: 1px; }
 .howto-list dd { margin: 0; line-height: 1.5; font-size: 14px; }
 @media (max-width: 560px) { .howto-list { grid-template-columns: 1fr; gap: 2px; } .howto-list dd { margin-bottom: 8px; } }
-.gate-title { margin: 6px 0 0; font-family: var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; font-size: 22px; color: var(--text); }
 
 /* account */
-.account-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--panel); font-size: 13px; }
-.account-bar .chip { margin-left: 6px; }
 .avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; display: inline-grid; place-items: center; background: var(--panel-2); color: var(--accent); font-weight: 700; flex: none; }
 
 /* admin panel */
@@ -596,6 +532,3 @@ body.targeting canvas { cursor: crosshair !important; }
 .admin-user .avatar { width: 40px; height: 40px; font-size: 18px; }
 .admin-saves { grid-column: 1 / -1; padding: 6px 0 2px 52px; }
 @media (max-width: 640px) { .admin-row { grid-template-columns: 1fr; } .admin-saves { padding-left: 0; } .admin-head { flex-wrap: wrap; } }
-.username-input { text-transform: none; letter-spacing: 0.04em; }
-.account-bar .btn { white-space: nowrap; padding: 5px 10px; }
-.main-foot a { color: inherit; }

@@ -1,3 +1,4 @@
+import { gatePage } from './console';
 import { h } from './dom';
 
 export const BETA_LABEL = 'Beta';
@@ -23,8 +24,6 @@ export async function ensureBetaAccess(root: HTMLElement): Promise<void> {
 }
 
 function showGate(root: HTMLElement, done: () => void) {
-  document.documentElement.dataset.theme = 'sepia';
-  document.title = `Warroom ${BETA_LABEL} — Tester access`;
   const input = h('input', {
     class: 'beta-input', type: 'text', placeholder: 'Beta tester code', autocomplete: 'off', spellcheck: 'false', maxlength: '64',
     'aria-label': 'Beta tester code',
@@ -51,15 +50,6 @@ function showGate(root: HTMLElement, done: () => void) {
     input.select();
   };
 
-  root.replaceChildren(h('div', { class: 'main-menu' },
-    h('div', { class: 'main-bg' }),
-    h('div', { class: 'main-center' },
-      h('h1', { class: 'main-title' }, 'Warroom'),
-      h('span', { class: 'beta-badge' }, `${BETA_LABEL} test`),
-      h('p', { class: 'main-tagline' }, 'This game is in closed beta. Enter your tester code to play.'),
-      form,
-      h('p', { class: 'main-foot' }, 'No code? Ask the developer for an invite.'),
-    ),
-  ));
+  root.replaceChildren(gatePage('Tester access', 'Enter your tester code to play.', [form], 'No code? Ask the developer for an invite.'));
   input.focus();
 }

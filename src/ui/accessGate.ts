@@ -1,6 +1,7 @@
 import { USERNAME_RULES, usernameError } from '../../shared/accounts/username';
 import { initAccess, loadMe, setUsername, signIn, signOut, type Me } from '../auth/account';
 import { ensureBetaAccess } from './betaGate';
+import { gatePage } from './console';
 import { h } from './dom';
 
 const PROVIDERS: Record<string, string> = { google: 'Google', discord: 'Discord', github: 'GitHub', twitch: 'Twitch' };
@@ -101,20 +102,8 @@ const button = (label: string, onclick: () => void, primary = false, resolves = 
 
 /** A title-screen style page; resolves when one of its resolving buttons is pressed. */
 function screen(root: HTMLElement, title: string, text: string, items: HTMLElement[]): Promise<void> {
-  document.documentElement.dataset.theme = 'sepia';
-  document.title = `Warroom Beta — ${title}`;
   return new Promise((resolve) => {
     for (const el of items) if (el.dataset.resolve) el.addEventListener('click', () => resolve());
-    root.replaceChildren(h('div', { class: 'main-menu' },
-      h('div', { class: 'main-bg' }),
-      h('div', { class: 'main-center' },
-        h('h1', { class: 'main-title' }, 'Warroom'),
-        h('span', { class: 'beta-badge' }, 'Beta'),
-        h('h2', { class: 'gate-title' }, title),
-        h('p', { class: 'main-tagline' }, text),
-        h('div', { class: 'main-buttons' }, ...items),
-        h('p', { class: 'main-foot' }, h('a', { href: '/privacy.html' }, 'Privacy'), ' · ', h('a', { href: '/terms.html' }, 'Terms')),
-      ),
-    ));
+    root.replaceChildren(gatePage(title, text, items));
   });
 }

@@ -1,4 +1,5 @@
 import './ui/styles.css';
+import './ui/console.css';
 import { audio } from './audio/audio';
 import type { ScenarioDef } from './core/scenario';
 import { createInitialState } from './core/state';

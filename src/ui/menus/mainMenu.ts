@@ -1,13 +1,15 @@
 import { USERNAME_RULES } from '../../../shared/accounts/username';
 import { audio } from '../../audio/audio';
-import { usernameForm } from '../accessGate';
-import { openPanel } from './shell';
 import { cloudSaves, currentUser, signOut } from '../../auth/account';
+import { scenarios } from '../../data/scenarios';
 import { listSaves, type SaveMeta } from '../../game/saves';
+import { usernameForm } from '../accessGate';
+import { consoleScreen, menuItem } from '../console';
 import { h } from '../dom';
-import { timeAgo, openLoadScreen } from './loadScreen';
 import { openHowToPlay } from './howToPlay';
+import { openLoadScreen, timeAgo } from './loadScreen';
 import { openSettings } from './settingsScreen';
+import { openPanel } from './shell';
 
 export interface MainMenuActions {
   newGame(): void;
@@ -15,7 +17,6 @@ export interface MainMenuActions {
   admin(): void;
 }
 
-/** Title screen: Continue, New game, Load game, How to play, Settings. */
 async function changeUsername() {
   const panel = openPanel('Change username');
   const { form, done } = usernameForm(currentUser()?.username ?? '', 'Save');
@@ -25,48 +26,47 @@ async function changeUsername() {
   if (saved) location.reload();
 }
 
-/** Who is signed in (accounts mode): picture, name, where saves go, sign out. */
+/** Who is signed in (accounts mode): picture, username, rename, sign out. */
 function accountBar() {
   const me = currentUser();
   if (!me) return null;
-  return h('div', { class: 'account-bar' },
-    me.avatar ? h('img', { class: 'avatar', src: me.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'avatar' }, me.name.slice(0, 1).toUpperCase()),
-    h('span', null, h('strong', null, me.username ?? me.name), me.admin ? h('span', { class: 'chip' }, 'Admin') : null,
-      h('span', { class: 'dim' }, cloudSaves() ? ' · saves in your account' : '')),
-    h('button', { class: 'btn', title: 'Change your username', onclick: () => void changeUsername() }, 'Rename'),
-    h('button', { class: 'btn', onclick: () => void signOut() }, 'Sign out'),
+  return h('div', { class: 'cx-account' },
+    me.avatar ? h('img', { class: 'avatar', src: me.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'avatar' }, (me.username ?? me.name).slice(0, 1).toUpperCase()),
+    h('div', { class: 'cx-account-name' },
+      h('strong', null, me.username ?? me.name),
+      h('span', null, me.admin ? 'Admin' : 'Player', cloudSaves() ? ' · cloud saves' : '')),
+    h('button', { class: 'cx-link', title: 'Change your username', onclick: () => void changeUsername() }, 'Rename'),
+    h('button', { class: 'cx-link', onclick: () => void signOut() }, 'Sign out'),
   );
 }
 
+/** Title screen: Continue, New game, Load game, How to play, Settings (and Admin). */
 export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) {
-  document.documentElement.dataset.theme = 'sepia';
-  document.title = 'Warroom Beta';
   let latest: SaveMeta | undefined;
   try {
     latest = (await listSaves())[0];
   } catch {
     /* saves unavailable: no Continue */
   }
-  const button = (label: string, sub: string | null, onclick: () => void, primary = false) =>
-    h('button', { class: `main-btn${primary ? ' primary' : ''}`, onclick: () => { audio.play('click'); onclick(); } },
-      h('span', { class: 'main-btn-label' }, label), sub ? h('span', { class: 'main-btn-sub' }, sub) : null);
+  const items: [string, string | null, () => void][] = [];
+  if (latest) items.push(['Continue', `${latest.nation ?? latest.scenarioName} · ${latest.gameDate} · ${timeAgo(latest.savedAt)}`, () => actions.load(latest!.id)]);
+  items.push(['New game', 'Choose an era and a nation', actions.newGame]);
+  items.push(['Load game', 'Your saved campaigns', () => void openLoadScreen(actions.load)]);
+  items.push(['How to play', 'Armies, land, fleets, diplomacy', () => void openHowToPlay()]);
+  items.push(['Settings', 'Gameplay, sound, display', () => void openSettings()]);
+  if (currentUser()?.admin) items.push(['Admin', 'Players and their saves', actions.admin]);
 
-  root.replaceChildren(h('div', { class: 'main-menu' },
-    h('div', { class: 'main-bg' }),
-    h('div', { class: 'main-center' },
-      h('h1', { class: 'main-title' }, 'Warroom'),
-      h('span', { class: 'beta-badge' }, 'Beta'),
-      h('p', { class: 'main-tagline' }, 'Grand strategy across 3,500 years. Every leader remembers.'),
-      h('nav', { class: 'main-buttons' },
-        latest ? button('Continue', `${latest.nation ?? latest.scenarioName} · ${latest.gameDate} · ${timeAgo(latest.savedAt)}`, () => actions.load(latest!.id), true) : null,
-        button('New game', 'Choose an era and a nation', actions.newGame, !latest),
-        button('Load game', null, () => void openLoadScreen(actions.load)),
-        button('How to play', 'Armies, taking land, fleets, diplomacy, controls', () => void openHowToPlay()),
-        button('Settings', 'Gameplay, sound, display, AI', () => void openSettings()),
-        currentUser()?.admin ? button('Admin panel', 'Approve players, view their saves', actions.admin) : null,
-      ),
-      accountBar(),
-      h('p', { class: 'main-foot' }, 'Bronze Age · Rome · Late Antiquity · Renaissance · 1914 · 1939 · Today · Divided States'),
+  root.replaceChildren(consoleScreen({ page: 'home', title: 'Warroom Beta', right: accountBar() },
+    h('main', { class: 'cx-home-main' },
+      h('div', { class: 'cx-kicker' }, h('span', { class: 'cx-dot' }), 'Grand strategy · 3,500 years · 8 eras'),
+      h('h1', { class: 'cx-wordmark' }, 'Warroom'),
+      h('p', { class: 'cx-lede' }, 'Lead one nation through history. Every other nation is run by an AI leader who remembers what you did.'),
+      h('nav', { class: 'cx-menu', 'aria-label': 'Main menu' },
+        ...items.map(([label, sub, go], i) => menuItem(i + 1, label, sub, () => { audio.play('click'); go(); }, i === 0))),
+    ),
+    h('footer', { class: 'cx-foot' },
+      h('div', { class: 'cx-eras' }, ...scenarios.map((s) => h('span', null, s.name))),
+      h('div', { class: 'cx-legal' }, h('a', { href: '/privacy.html' }, 'Privacy'), h('a', { href: '/terms.html' }, 'Terms')),
     ),
   ));
 }
