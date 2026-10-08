@@ -1,7 +1,7 @@
 import { atWar, friendly, getRelation, provincesOf } from './queries';
 import { nextRandom } from './rng';
 import type { UnitTypeDef } from './scenario';
-import type { Army, ArmyId, GameEvent, GameState, Nation, NationId, ProvinceId, ProvinceState } from './types';
+import { aiEdge, type Army, type ArmyId, type GameEvent, type GameState, type Nation, type NationId, type ProvinceId, type ProvinceState } from './types';
 import type { Link, World } from './world';
 
 // ---- tuning -----------------------------------------------------------------------------------
@@ -374,7 +374,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       const a = armies[id];
       const sea = fleet(id);
       const unit = world.unitTypes[a.unitType];
-      const quality = s.nations[a.owner]?.quality ?? 1;
+      const quality = (s.nations[a.owner]?.quality ?? 1) * aiEdge(s, a.owner);
       const targets = here.filter((t) => fleet(t) === sea && atWar(s, a.owner, armies[t].owner));
       const vsGarrison = !sea && g > 0 && atWar(s, a.owner, owner);
       if (targets.length || vsGarrison) {
@@ -393,7 +393,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
     // the garrison fights back against the invaders (fleets are out of its reach)
     if (g > 0 && invaders.length) {
-      const q = s.nations[owner]?.quality ?? 1;
+      const q = (s.nations[owner]?.quality ?? 1) * aiEdge(s, owner);
       const bonus = (s.rules.homeDefense ?? 1.2) * (s.nations[owner]?.capital === province ? CAPITAL_DEFENSE : 1);
       hit(g * q * GARRISON_DEFENSE * bonus * DAMAGE_PER_DAY * tickDays * (0.85 + rand() * 0.3), invaders, 0);
     }
@@ -522,7 +522,10 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     for (const n of Object.values(s.nations).sort((a, b) => (a.id < b.id ? -1 : 1))) {
       if (!n.alive || !n.capital) continue;
       const count = Object.values(s.armies).filter((a) => a.owner === n.id && !isFleet(world, a.unitType)).length;
-      if (count >= armyCap(effectiveSize(s, world, n.id, provincesOf(s, n.id)), n.military)) continue;
+      // difficulty: AI nations keep a smaller (easy) or larger (hard) army than the player could
+      const d = n.id === player ? 'normal' : s.rules.difficulty ?? 'normal';
+      const cap = Math.round(armyCap(effectiveSize(s, world, n.id, provincesOf(s, n.id)), n.military) * (d === 'easy' ? 0.8 : d === 'hard' ? 1.25 : 1));
+      if (count >= cap) continue;
       s = raiseArmy(s, world, n, n.capital);
       if (n.id === player) s = log(s, { kind: 'mobilize', text: `A new army is raised at ${provinceName(world, n.capital)}.`, nations: [n.id] });
     }

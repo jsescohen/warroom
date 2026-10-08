@@ -395,14 +395,17 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
     if (rel > 10) continue;
     const theirSide = power(c) + alive.filter((x) => x !== n && allied(s, c, x)).reduce((x, a) => x + power(a) * 0.7, 0);
     const ratio = ourSide / (theirSide + 1);
-    const needed = c === player ? 2.2 : 1.6; // the AI picks on the player only with a clear edge
+    // the AI picks on the player only with a clear edge (less of one on hard)
+    const d = s.rules.difficulty ?? 'normal';
+    const needed = c === player ? (d === 'easy' ? 2.8 : d === 'hard' ? 1.7 : 2.2) : 1.6;
     if (ratio < needed) continue;
     const score = (ratio - needed) * 10 - rel / 5 - (bound ? 15 : 0) - (s.nations[c].major ? 5 : 0);
     if (!best || score > best.score) best = { target: c, score };
   }
   if (!best) return s;
   [r, s] = rand(s);
-  if (r < me.aggression * 0.3 * (s.rules.warAppetite ?? 1)) {
+  const appetite = { easy: 0.6, normal: 1, hard: 1.4 }[s.rules.difficulty ?? 'normal'];
+  if (r < me.aggression * 0.3 * (s.rules.warAppetite ?? 1) * appetite) {
     const before = s;
     s = apply(s, { action: { type: 'declareWar', attacker: n, defender: best.target }, actor: n });
     if (s !== before) s = { ...s, ai: { ...s.ai, lastWarAt: s.clock.hours } };

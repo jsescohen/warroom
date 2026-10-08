@@ -1,6 +1,7 @@
 import type { Command } from './actions';
 import { aiTick } from './ai';
 import { diplomacyTick } from './diplomacy';
+import { HISTORY_EVERY_HOURS, recordHistory } from './history';
 import { militaryTick } from './military';
 import type { GameEvent, GameState } from './types';
 import type { World } from './world';
@@ -20,6 +21,7 @@ export function simulateTick(state: GameState, world: World, apply: ApplyFn, log
   s = aiTick(s, world, apply);
   s = militaryTick(s, world, log);
   s = diplomacyTick(s);
+  if (s.clock.hours % HISTORY_EVERY_HOURS === 0) s = recordHistory(s);
   return s;
 }
 

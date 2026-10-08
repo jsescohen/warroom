@@ -1,4 +1,5 @@
 import type { Action } from './actions';
+import type { History } from './history';
 
 /**
  * Core game model. Everything in GameState is plain JSON (no classes, no functions, no Maps)
@@ -199,8 +200,22 @@ export interface GameState {
     warAppetite: number;
     /** Days an unopposed full-strength army needs to occupy a province. */
     captureDays: number;
+    /** How hard the AI nations play (chosen with the nation). Missing = normal. */
+    difficulty?: Difficulty;
   };
+  /** Weekly territory and strength of the great powers, for the ledger (see core/history.ts). */
+  history?: History;
   winner: NationId | null;
+}
+
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard'];
+
+/** Multiplier on an AI nation's fighting power: the player always fights at 1. */
+export function aiEdge(s: GameState, nation: NationId): number {
+  if (nation === s.playerNation) return 1;
+  const d = s.rules.difficulty ?? 'normal';
+  return d === 'easy' ? 0.85 : d === 'hard' ? 1.15 : 1;
 }
 
 export const relationKey = (a: NationId, b: NationId) => (a < b ? `${a}|${b}` : `${b}|${a}`);

@@ -2,6 +2,7 @@ import type { GameSession } from '../../game/session';
 import { h } from '../dom';
 import { openLoadScreen } from './loadScreen';
 import { openPanel } from './shell';
+import { openFeedback } from './feedback';
 import { openHowToPlay } from './howToPlay';
 import { openSettings } from './settingsScreen';
 
@@ -21,6 +22,7 @@ export function openGameMenu(session: GameSession, onLoad: (id: string) => void)
     }),
     btn('Load game', null, () => { panel.close(); void openLoadScreen(onLoad); }),
     btn('How to play', null, () => { panel.close(); void openHowToPlay(); }),
+    btn('Send feedback', 'A bug, an idea, a balance problem: straight to the admin', () => { panel.close(); void openFeedback({ store: session.store, scenario: session.scenario }); }),
     btn('Settings', null, () => { panel.close(); void openSettings(); }),
     btn('Main menu', session.dirty ? 'Unsaved progress is kept in the autosave (if enabled)' : null, async () => {
       panel.close();

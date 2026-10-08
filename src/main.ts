@@ -9,7 +9,11 @@ import { getScenario, scenarios } from './data/scenarios';
 import { GameLoop } from './game/loop';
 import { apiFetch } from './auth/account';
 import { getSave, validateSave, type SaveRecord } from './game/saves';
+import { AchievementTracker } from './game/achievements';
+import { installErrorReports, setErrorContext } from './game/errorReports';
+import { trackPlayStats } from './game/playStats';
 import { GameSession } from './game/session';
+import { formatDate } from './core/time';
 import { applyProvinceNames, buildWorldFromMap, loadMap, provinceMeta } from './map/mapData';
 import { MapRenderer } from './map/MapRenderer';
 import { h } from './ui/dom';
@@ -42,6 +46,7 @@ const go = {
 };
 
 async function boot() {
+  installErrorReports();
   applyDisplaySettings();
   onSettingsChange((s) => applyDisplaySettings(s));
   if (import.meta.env.DEV) Object.assign(window, { audio });
@@ -57,7 +62,8 @@ async function boot() {
 
   if (q.has('load')) return loadGame(root, q.get('load')!);
   if (q.has('spectate')) return spectate(root, q.get('user') ?? '', q.get('spectate')!);
-  if (q.has('admin')) return showAdminPanel(root, { menu: go.menu, spectate: go.spectate });
+  if (q.has('feedback')) return spectate(root, null, q.get('feedback')!);
+  if (q.has('admin')) return showAdminPanel(root, { menu: go.menu, spectate: go.spectate, spectateFeedback: (id) => (location.search = `?feedback=${encodeURIComponent(id)}`) });
   const scenario = getScenario(q.get('era') ?? '');
   if (scenario) return startGame(root, scenario, null, null);
   if (q.has('new')) return showEraSelect(root, (sc) => go.era(sc.id), go.menu);
@@ -80,10 +86,11 @@ async function loadGame(root: HTMLElement, id: string) {
 }
 
 /** Admins: open a player's saved game read-only. Time can run; nothing is saved or ordered. */
-async function spectate(root: HTMLElement, user: string, id: string) {
+async function spectate(root: HTMLElement, user: string | null, id: string) {
   const fail = (msg: string) =>
     root.replaceChildren(h('div', { class: 'loading' }, h('div', null, msg, h('div', null, h('button', { class: 'btn', onclick: go.admin }, 'Admin panel')))));
-  const res = await apiFetch(`/api/admin/users/${encodeURIComponent(user)}/saves/${encodeURIComponent(id)}`);
+  // a player's save, or the game a tester attached to their feedback
+  const res = await apiFetch(user === null ? `/api/admin/feedback/${encodeURIComponent(id)}/save` : `/api/admin/users/${encodeURIComponent(user)}/saves/${encodeURIComponent(id)}`);
   if (!res.ok) return fail((await res.json().catch(() => null))?.error ?? `Could not open that save (HTTP ${res.status}).`);
   const rec = (await res.json()) as SaveRecord;
   const err = validateSave(rec, scenarios.map((s) => s.id));
@@ -125,6 +132,9 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   hud = new Hud(root, store, map, scenario, renderer, loop, session, go.load);
   if (!store.state.playerNation) root.append(new NationPicker(store, scenario, renderer).el);
   new EndScreen(store, () => void session.quitToMenu(), go.newGame);
+  setErrorContext(() => ({ scenarioId: scenario.id, date: formatDate(store.state.clock), nation: store.state.playerNation, spectating: readOnly }));
+  trackPlayStats(store, scenario);
+  new AchievementTracker(store, scenario, (a) => hud?.celebrate(a.name, a.description));
   loading.remove();
 
   // Open on the player's capital, or the first great power's.

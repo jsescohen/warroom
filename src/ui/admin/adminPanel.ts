@@ -4,6 +4,7 @@ import type { SaveMeta } from '../../game/saves';
 import { consoleScreen } from '../console';
 import { fill, h } from '../dom';
 import { timeAgo } from '../menus/loadScreen';
+import { formatPlaytime } from '../menus/profile';
 
 interface AdminUser {
   id: string;
@@ -18,7 +19,13 @@ interface AdminUser {
   saves: number;
 }
 
-type Tab = 'pending' | 'approved' | 'rejected' | 'games';
+type Tab = 'pending' | 'approved' | 'rejected' | 'feedback' | 'errors' | 'stats' | 'games';
+
+interface FeedbackItem { id: string; username: string | null; category: string; text: string; context: Record<string, unknown>; hasSave: boolean; status: 'new' | 'done'; createdAt: number }
+interface ErrorItem { key: string; message: string; stack: string; context: Record<string, unknown>; count: number; firstAt: number; lastAt: number; lastUser: string | null }
+interface StatsItem { playtimeS: number; games: number; victories: number; defeats: number; eras: Record<string, { games: number; playtimeS: number; victories: number }>; lastPlayed: number; lastEra: string | null }
+
+const eraName = (id: string) => scenarios.find((s) => s.id === id)?.name ?? id;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await apiFetch(path, init);
@@ -31,12 +38,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * Admin panel (?admin): let players into the beta, revoke access, and open anyone's saved games
  * read-only. Live multiplayer games will be listed under "Games" once they exist.
  */
-export async function showAdminPanel(root: HTMLElement, actions: { menu(): void; spectate(user: string, save: string): void }) {
+export async function showAdminPanel(root: HTMLElement, actions: { menu(): void; spectate(user: string, save: string): void; spectateFeedback(id: string): void }) {
   if (!currentUser()?.admin) {
     root.replaceChildren(h('div', { class: 'loading' }, h('div', null, 'Admins only.', h('div', null, h('button', { class: 'btn', onclick: actions.menu }, 'Main menu')))));
     return;
   }
   let users: AdminUser[] = [];
+  let feedback: FeedbackItem[] = [];
+  let errors: ErrorItem[] = [];
+  let stats: Record<string, StatsItem> = {};
+  const openError = new Set<string>();
   let tab: Tab = 'pending';
   const open = new Set<string>(); // users whose saves are expanded
   const savesOf = new Map<string, SaveMeta[] | string>();
@@ -46,7 +57,12 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
 
   const load = async () => {
     try {
-      users = await api<AdminUser[]>('/api/admin/users');
+      [users, feedback, errors, stats] = await Promise.all([
+        api<AdminUser[]>('/api/admin/users'),
+        api<FeedbackItem[]>('/api/admin/feedback').catch(() => []),
+        api<ErrorItem[]>('/api/admin/errors').catch(() => []),
+        api<Record<string, StatsItem>>('/api/admin/stats').catch(() => ({})),
+      ]);
       status.textContent = '';
     } catch (e) {
       status.textContent = `Could not load accounts: ${(e as Error).message}`;
@@ -96,7 +112,8 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
         h('div', null,
           h('div', { class: 'save-name' }, u.username ?? h('span', { class: 'dim' }, '(no username yet)'), u.admin ? h('span', { class: 'chip' }, 'Admin') : null),
           h('div', { class: 'save-sub' }, `${u.name} · ${u.email}`),
-          h('div', { class: 'save-sub dim' }, `Joined ${timeAgo(u.createdAt)} · last seen ${timeAgo(u.lastSeen)} · ${u.saves} save${u.saves === 1 ? '' : 's'}`),
+          h('div', { class: 'save-sub dim' }, `Joined ${timeAgo(u.createdAt)} · last seen ${timeAgo(u.lastSeen)} · ${u.saves} save${u.saves === 1 ? '' : 's'}`
+            + (stats[u.id] ? ` · played ${formatPlaytime(stats[u.id].playtimeS)} · ${stats[u.id].games} game${stats[u.id].games === 1 ? '' : 's'}${stats[u.id].lastEra ? `, last ${eraName(stats[u.id].lastEra!)}` : ''}` : '')),
         ),
       ),
       h('div', { class: 'save-actions' },
@@ -127,12 +144,80 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
     );
   };
 
+  const setFeedback = async (f: FeedbackItem, action: 'done' | 'new' | 'delete') => {
+    try {
+      if (action === 'delete') await api(`/api/admin/feedback/${f.id}`, { method: 'DELETE' });
+      else await api(`/api/admin/feedback/${f.id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: action }) });
+      await load();
+    } catch (e) { status.textContent = (e as Error).message; }
+  };
+  const feedbackRow = (f: FeedbackItem) => {
+    const c = f.context;
+    const where = [c.era, c.date, c.nation, c.difficulty].filter(Boolean).join(' · ');
+    return h('div', { class: `admin-row feedback ${f.status}` },
+      h('div', null,
+        h('div', { class: 'save-name' }, h('span', { class: `chip cat-${f.category}` }, f.category), f.username ?? 'someone', h('span', { class: 'dim' }, ` · ${timeAgo(f.createdAt)}`)),
+        h('p', { class: 'feedback-body' }, f.text),
+        h('div', { class: 'save-sub dim' }, where || String(c.page ?? ''), c.screen ? ` · screen ${c.screen}` : ''),
+      ),
+      h('div', { class: 'save-actions' },
+        f.hasSave ? h('button', { class: 'btn', title: 'Open the game they attached, read-only', onclick: () => actions.spectateFeedback(f.id) }, 'Spectate') : null,
+        f.status === 'new' ? h('button', { class: 'btn primary', onclick: () => void setFeedback(f, 'done') }, 'Done') : h('button', { class: 'btn', onclick: () => void setFeedback(f, 'new') }, 'Reopen'),
+        h('button', { class: 'btn danger', onclick: () => void setFeedback(f, 'delete') }, 'Delete'),
+      ),
+    );
+  };
+  const errorRow = (e: ErrorItem) => h('div', { class: 'admin-row' },
+    h('div', null,
+      h('div', { class: 'save-name' }, h('span', { class: 'chip' }, `×${e.count}`), e.message),
+      h('div', { class: 'save-sub dim' }, `Last ${timeAgo(e.lastAt)}${e.lastUser ? ` (${e.lastUser})` : ''} · first ${timeAgo(e.firstAt)}${e.context.scenarioId ? ` · ${eraName(String(e.context.scenarioId))}` : ''}`),
+      openError.has(e.key) ? h('pre', { class: 'error-stack' }, `${e.stack}\n\n${JSON.stringify(e.context, null, 2)}`) : null,
+    ),
+    h('div', { class: 'save-actions' },
+      h('button', { class: 'btn', onclick: () => { if (!openError.delete(e.key)) openError.add(e.key); render(); } }, openError.has(e.key) ? 'Hide' : 'Details'),
+      h('button', { class: 'btn primary', title: 'Fixed: remove it (it comes back if it happens again)', onclick: async () => { await api(`/api/admin/errors/${e.key}`, { method: 'DELETE' }).catch(() => undefined); await load(); } }, 'Fixed'),
+    ),
+  );
+  const statsView = () => {
+    const all = Object.values(stats);
+    const total = (k: 'playtimeS' | 'games' | 'victories' | 'defeats') => all.reduce((x, s) => x + (s[k] ?? 0), 0);
+    const eras = new Map<string, { games: number; playtimeS: number; victories: number; players: number }>();
+    for (const s of all) for (const [id, e] of Object.entries(s.eras ?? {})) {
+      const t = eras.get(id) ?? { games: 0, playtimeS: 0, victories: 0, players: 0 };
+      eras.set(id, { games: t.games + e.games, playtimeS: t.playtimeS + e.playtimeS, victories: t.victories + e.victories, players: t.players + 1 });
+    }
+    const week = Date.now() - 7 * 86_400_000;
+    const tiles: [string, string][] = [
+      ['Players who played', String(all.filter((s) => s.games > 0).length)], ['Active this week', String(all.filter((s) => s.lastPlayed > week).length)],
+      ['Time played', formatPlaytime(total('playtimeS'))], ['Games started', String(total('games'))], ['Victories', String(total('victories'))], ['Defeats', String(total('defeats'))],
+    ];
+    return [
+      h('div', { class: 'stat-tiles' }, ...tiles.map(([k, v]) => h('div', { class: 'stat-tile' }, h('span', null, k), h('strong', null, v)))),
+      h('table', { class: 'data-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Era'), h('th', null, 'Players'), h('th', null, 'Games'), h('th', null, 'Time'), h('th', null, 'Victories'))),
+        h('tbody', null, ...[...eras].sort((a, b) => b[1].playtimeS - a[1].playtimeS).map(([id, e]) =>
+          h('tr', null, h('td', null, eraName(id)), h('td', null, String(e.players)), h('td', null, String(e.games)), h('td', null, formatPlaytime(e.playtimeS)), h('td', null, String(e.victories)))))),
+    ];
+  };
+
   const render = () => {
     const count = (st: AdminUser['status']) => users.filter((u) => u.status === st).length;
+    const fresh = feedback.filter((f) => f.status === 'new').length;
     const labels: [Tab, string][] = [
-      ['pending', `Waiting (${count('pending')})`], ['approved', `Players (${count('approved')})`], ['rejected', `Blocked (${count('rejected')})`], ['games', 'Live games'],
+      ['pending', `Waiting (${count('pending')})`], ['approved', `Players (${count('approved')})`], ['rejected', `Blocked (${count('rejected')})`],
+      ['feedback', `Feedback (${fresh})`], ['errors', `Errors (${errors.length})`], ['stats', 'Stats'], ['games', 'Live games'],
     ];
     fill(tabs, ...labels.map(([id, label]) => h('button', { class: id === tab ? 'active' : '', role: 'tab', 'aria-selected': String(id === tab), onclick: () => { tab = id; render(); } }, label)));
+    if (tab === 'feedback') {
+      const sorted = [...feedback].sort((a, b) => (a.status === b.status ? b.createdAt - a.createdAt : a.status === 'new' ? -1 : 1));
+      fill(list, ...(sorted.length ? sorted.map(feedbackRow) : [h('p', { class: 'dim' }, 'No feedback yet. Testers send it with the ✎ button in a game or from the main menu.')]));
+      return;
+    }
+    if (tab === 'errors') {
+      fill(list, ...(errors.length ? errors.map(errorRow) : [h('p', { class: 'dim' }, 'No errors reported. Errors in players’ browsers show up here automatically.')]));
+      return;
+    }
+    if (tab === 'stats') { fill(list, ...statsView()); return; }
     if (tab === 'games') {
       fill(list, h('p', { class: 'dim' }, 'Live multiplayer games will appear here, ready to spectate, once multiplayer is added. For now you can open any player’s saved games from the Players tab.'));
       return;
@@ -147,8 +232,8 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
       h('header', { class: 'cx-page-head row' },
         h('div', null,
           h('div', { class: 'cx-kicker' }, h('span', { class: 'cx-dot' }), 'Admin'),
-          h('h1', null, 'Players'),
-          h('p', null, 'Let new players in, block them, and open their saved games read-only.')),
+          h('h1', null, 'Admin panel'),
+          h('p', null, 'Let players in, read their feedback and error reports, see how the beta is played, and open any game read-only.')),
         h('button', { class: 'btn', title: 'Reload the list', onclick: () => void load() }, 'Refresh'),
       ),
       h('section', { class: 'cx-panel' }, tabs, status, list),

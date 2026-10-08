@@ -3,7 +3,7 @@ import { addGrievance, addNote, addRelation, log, logEvent } from './events';
 import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
 import { formatShortDate } from './time';
-import { relationKey, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
+import { DIFFICULTIES, relationKey, type Difficulty, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
 
@@ -14,7 +14,7 @@ export { logEvent } from './events';
  * logged, replayed, or sent to a server for multiplayer later.
  */
 export type Action =
-  | { type: 'chooseNation'; nation: NationId }
+  | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty }
   | { type: 'tick' }
   | { type: 'declareWar'; attacker: NationId; defender: NationId }
   | { type: 'moveArmy'; army: ArmyId; to: ProvinceId }
@@ -66,6 +66,7 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
     case 'chooseNation':
       if (!isNation(action.nation)) return 'Unknown nation';
       if (state.playerNation) return 'Nation already chosen';
+      if (action.difficulty && !DIFFICULTIES.includes(action.difficulty)) return 'Unknown difficulty';
       return null;
     case 'tick':
       return actor === 'system' ? null : 'Only the simulation advances time';
@@ -150,7 +151,7 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
   const { action, actor } = cmd;
   switch (action.type) {
     case 'chooseNation':
-      return logEvent({ ...state, playerNation: action.nation }, 'player', `You lead ${state.nations[action.nation].name}.`, {
+      return logEvent({ ...state, playerNation: action.nation, rules: { ...state.rules, difficulty: action.difficulty ?? 'normal' } }, 'player', `You lead ${state.nations[action.nation].name}.`, {
         nations: [action.nation],
       });
 

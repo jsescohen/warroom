@@ -16,7 +16,9 @@ export interface ArmyDragHooks {
   move(army: string, province: string | null, world: [number, number]): void;
   drop(army: string, province: string | null): void;
 }
-type Handler = (id: string | null) => void;
+/** Shift held: add to / remove from the current group of armies. */
+export interface PickMods { shift: boolean }
+type Handler = (id: string | null, mods: PickMods) => void;
 
 /** Screen pixel widths for lines; converted to world units on redraw so they stay crisp. */
 const LINE = { nation: 1.7, province: 0.8, coast: 1.1, shore: 7, hover: 2, select: 2.6 };
@@ -75,6 +77,13 @@ export class MapRenderer {
     const r = new MapRenderer(el, map, theme, sim);
     await r.init();
     return r;
+  }
+
+  private boxHandlers = new Set<(ids: string[]) => void>();
+  /** Shift+drag on the map: armies inside the box. */
+  onBox(h: (ids: string[]) => void) {
+    this.boxHandlers.add(h);
+    return () => this.boxHandlers.delete(h);
   }
 
   on(ev: MapEvent, h: Handler) {
@@ -152,8 +161,8 @@ export class MapRenderer {
     this.needsRender = true;
   }
 
-  setArmySelection(id: string | null) {
-    this.armies.setSelected(id);
+  setArmySelection(ids: string | string[] | null) {
+    this.armies.setSelected(ids);
   }
 
   /** Strike range ring around a fleet; null hides it. */
@@ -501,15 +510,26 @@ export class MapRenderer {
     }, { passive: false });
 
     let button = 0;
+    let shift = false;
+    // shift+drag draws a selection box (a plain DOM rectangle over the canvas)
+    let boxFrom: { x: number; y: number } | null = null;
+    const boxEl = document.createElement('div');
+    boxEl.className = 'select-box';
+    canvas.parentElement?.append(boxEl);
+    const drawBox = (to: { x: number; y: number } | null) => {
+      if (!boxFrom || !to) { boxEl.style.display = 'none'; return; }
+      Object.assign(boxEl.style, { display: 'block', left: `${Math.min(boxFrom.x, to.x)}px`, top: `${Math.min(boxFrom.y, to.y)}px`, width: `${Math.abs(to.x - boxFrom.x)}px`, height: `${Math.abs(to.y - boxFrom.y)}px` });
+    };
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
-      if (pointers.size === 0) button = e.button;
+      if (pointers.size === 0) { button = e.button; shift = e.shiftKey; }
       pointers.set(e.pointerId, rel(e));
       if (pointers.size === 1) {
         downAt = rel(e);
         moved = false;
         lastMoveT = performance.now();
+        if (e.button === 0 && e.shiftKey && !this.armies.pick(downAt.x, downAt.y)) { boxFrom = downAt; return; }
         // pressing on one of your own counters starts an order drag instead of panning
         const army = e.button === 0 ? this.armies.pick(downAt.x, downAt.y) : null;
         if (army && this.armyDrag?.canDrag(army)) this.draggingArmy = army;
@@ -535,6 +555,7 @@ export class MapRenderer {
         return;
       }
       if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 5) moved = true;
+      if (boxFrom) { if (moved) drawBox(p); return; }
       if (this.draggingArmy) {
         if (!moved) return;
         this.pointerAt = p;
@@ -558,6 +579,12 @@ export class MapRenderer {
       if (pointers.size > 0) return;
       this.camera.endDrag();
       canvas.style.cursor = '';
+      if (boxFrom) {
+        const from = boxFrom, to = rel(e);
+        boxFrom = null;
+        drawBox(null);
+        if (moved) { const ids = this.armies.inScreenRect(from.x, from.y, to.x, to.y); this.boxHandlers.forEach((h) => h(ids)); downAt = null; return; }
+      }
       const dragged = this.draggingArmy;
       this.draggingArmy = null;
       this.pointerAt = null;
@@ -570,11 +597,12 @@ export class MapRenderer {
       if (!moved) {
         const { x, y } = rel(e);
         const province = this.pick(x, y)?.id ?? null;
-        if (button === 2) this.handlers.command.forEach((h) => h(province));
+        const mods = { shift };
+        if (button === 2) this.handlers.command.forEach((h) => h(province, mods));
         else {
           const army = this.armies.pick(x, y);
-          if (army) this.handlers.army.forEach((h) => h(army));
-          else this.handlers.select.forEach((h) => h(province));
+          if (army) this.handlers.army.forEach((h) => h(army, mods));
+          else this.handlers.select.forEach((h) => h(province, mods));
         }
       }
       downAt = null;
@@ -594,7 +622,7 @@ export class MapRenderer {
     this.dirtyOverlay = true;
     this.needsRender = true;
     const id = i === null ? null : this.map.provinces[i].id;
-    this.handlers.hover.forEach((h) => h(id));
+    this.handlers.hover.forEach((h) => h(id, { shift: false }));
   }
 
   // ---- frame ------------------------------------------------------------------------------------

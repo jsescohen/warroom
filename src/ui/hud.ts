@@ -11,6 +11,7 @@ import { audio } from '../audio/audio';
 import { newImportant, SPEEDS, type GameLoop, type Speed } from '../game/loop';
 import type { GameSession } from '../game/session';
 import { openGameMenu } from './menus/gameMenu';
+import { openFeedback } from './menus/feedback';
 import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
@@ -55,11 +56,28 @@ export class Hud {
     private onLoadGame: (id: string) => void,
   ) {
     this.side = new SidePanel(map, store.world, {
-      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation }, nation),
+      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, difficulty: getSettings().difficulty }, nation),
       declareWar: (target) => void this.declareWar(target),
       selectArmy: (id) => this.select({ kind: 'army', id }),
       armyOrder: (type, army) => this.dispatch({ type, army } as Action),
       strike: (army) => this.startStrike(army),
+      groupOrder: (type, ids) => {
+        if (type === 'clear') return this.select(null);
+        this.store.batch(() => {
+          if (type === 'stop') for (const id of ids) this.store.dispatch({ type: 'stopArmy', army: id }, this.state.playerNation!);
+          // merge: one merge per place and type (each merge takes in its idle neighbours)
+          if (type === 'merge') {
+            const done = new Set<string>();
+            for (const id of ids) {
+              const a = this.state.armies[id];
+              if (!a || done.has(`${a.location}|${a.unitType}`)) continue;
+              done.add(`${a.location}|${a.unitType}`);
+              this.store.dispatch({ type: 'mergeArmies', army: id }, this.state.playerNation!);
+            }
+          }
+        });
+        audio.play('order');
+      },
       focus: (id) => renderer.focusOn(id),
       diplomacy: (nation) => this.diplo.open(nation),
     });
@@ -75,6 +93,7 @@ export class Hud {
       this.playerEl,
       this.aiStatus,
       this.diploBtn,
+      ...(spectating ? [] : [h('button', { class: 'btn icon-btn', title: 'Send feedback: a bug or an idea, straight to the admin', 'aria-label': 'Send feedback', onclick: () => void this.withPause(() => openFeedback({ store, scenario }), true) }, '✎')]),
       h('button', { class: 'btn icon-btn', title: 'How to play (H)', 'aria-label': 'How to play', onclick: () => void this.withPause(() => openHowToPlay(), true) }, '?'),
       h('button', { class: 'btn icon-btn', title: 'Settings', 'aria-label': 'Settings', onclick: () => void this.openSettingsPaused() }, '⚙'),
       h('button', { class: 'btn icon-btn', title: 'Menu (Esc): save, load, settings, main menu', 'aria-label': 'Menu', onclick: () => void this.openMenu() }, '☰'),
@@ -116,16 +135,34 @@ export class Hud {
 
     renderer.on('select', (id) => {
       if (this.targeting) { if (id) this.fireStrike(id); return; }
-      const army = this.ownSelectedArmy();
-      if (army && id) void this.orderMove(army, id);
+      const group = this.ownSelectedArmies();
+      if (group.length && id) void this.orderGroup(group, id);
       else this.select(id ? { kind: 'province', id } : null);
     });
-    renderer.on('army', (id) => { this.select(id ? { kind: 'army', id } : null); if (id) audio.play('select'); });
+    renderer.on('army', (id, mods) => {
+      if (!id) return this.select(null);
+      const mine = this.state.armies[id]?.owner === this.state.playerNation;
+      if (mods.shift && mine) {
+        // shift+click: add to or remove from the group
+        const ids = this.ownSelectedArmies().map((a) => a.id);
+        const next = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+        this.selectArmies(next);
+      } else this.select({ kind: 'army', id });
+      audio.play('select');
+    });
+    // shift+drag a box: select every army of yours inside it
+    renderer.onBox((ids) => {
+      const mine = ids.filter((id) => this.state.armies[id]?.owner === this.state.playerNation);
+      if (!mine.length) return;
+      this.selectArmies(mine);
+      audio.play('select');
+    });
     // Drag one of your counters: the route follows the cursor, releasing gives the order.
     renderer.armyDrag = {
       canDrag: (id) => !store.readOnly && !!this.state.playerNation && this.state.armies[id]?.owner === this.state.playerNation,
       move: (id, province, at) => {
-        if (this.selection?.kind !== 'army' || this.selection.id !== id) { this.select({ kind: 'army', id }); audio.play('pickup'); }
+        const inGroup = this.selection?.kind === 'armies' && this.selection.ids.includes(id);
+        if (!inGroup && (this.selection?.kind !== 'army' || this.selection.id !== id)) { this.select({ kind: 'army', id }); audio.play('pickup'); }
         this.hovered = province;
         if (province) this.renderTip();
         else {
@@ -137,13 +174,17 @@ export class Hud {
       drop: (id, province) => {
         this.renderer.setMovePreview(null);
         const a = this.state.armies[id];
-        if (a && province) void this.orderMove(a, province);
+        if (!a || !province) return;
+        const group = this.ownSelectedArmies();
+        // dragging one counter of a group moves the whole group
+        if (group.length > 1 && group.some((g) => g.id === id)) void this.orderGroup(group, province);
+        else void this.orderMove(a, province);
       },
     };
     renderer.on('command', (id) => {
       if (this.targeting) { if (id) this.fireStrike(id); return; }
-      const army = this.ownSelectedArmy();
-      if (army && id) void this.orderMove(army, id);
+      const group = this.ownSelectedArmies();
+      if (group.length && id) void this.orderGroup(group, id);
     });
     renderer.on('hover', (id) => {
       this.hovered = id;
@@ -163,6 +204,7 @@ export class Hud {
       }
       if (s.playerNation !== prev.playerNation) this.renderPlayer();
       if (this.selection?.kind === 'army' && !s.armies[this.selection.id]) this.select(null);
+      else if (this.selection?.kind === 'armies' && this.selection.ids.some((id) => !s.armies[id])) this.selectArmies(this.selection.ids.filter((id) => s.armies[id]));
       else this.side.render(s, this.selection);
       if (s.armies !== prev.armies && this.hovered) this.renderTip();
     });
@@ -195,7 +237,7 @@ export class Hud {
     if (this.targeting && !(sel?.kind === 'army' && sel.id === this.targeting)) this.endStrike();
     this.selection = sel;
     this.renderer.setSelection(sel?.kind === 'province' ? sel.id : null);
-    this.renderer.setArmySelection(sel?.kind === 'army' ? sel.id : null);
+    this.renderer.setArmySelection(sel?.kind === 'army' ? sel.id : sel?.kind === 'armies' ? sel.ids : null);
     this.renderer.setMovePreview(null);
     this.side.render(this.state, sel);
     this.renderTip();
@@ -229,10 +271,52 @@ export class Hud {
     this.renderTip();
   }
 
-  private ownSelectedArmy(): Army | null {
-    if (this.selection?.kind !== 'army') return null;
-    const a = this.state.armies[this.selection.id];
-    return a && a.owner === this.state.playerNation ? a : null;
+  /** Selects a group (or one army, or nothing) from a list of army ids. */
+  private selectArmies(ids: string[]) {
+    if (!ids.length) this.select(null);
+    else if (ids.length === 1) this.select({ kind: 'army', id: ids[0] });
+    else this.select({ kind: 'armies', ids });
+  }
+
+  /** The player's selected armies: the group, the single army, or none. */
+  private ownSelectedArmies(): Army[] {
+    const sel = this.selection;
+    const ids = sel?.kind === 'armies' ? sel.ids : sel?.kind === 'army' ? [sel.id] : [];
+    return ids.map((id) => this.state.armies[id]).filter((a): a is Army => !!a && a.owner === this.state.playerNation);
+  }
+
+  /** One order for several armies: one advisor check, then each army finds its own route. */
+  private async orderGroup(armies: Army[], to: string) {
+    if (armies.length === 1) return this.orderMove(armies[0], to);
+    const s = this.state, world = this.store.world, player = s.playerNation!;
+    this.renderer.setMovePreview(null);
+    const owner = s.provinces[to]?.owner;
+    const land = armies.filter((a) => !isFleet(world, a.unitType));
+    if (land.length && owner && !canEnter(s, player, to)) {
+      if (friendly(s, player, owner)) return this.toast(`${s.nations[owner].shortName} is a friend: you have no right to fight there.`, 'alert');
+      const war: Action = { type: 'declareWar', attacker: player, defender: owner };
+      const invalid = validate(s, { action: war, actor: player }, world);
+      if (invalid) return this.toast(invalid, 'alert');
+      const base = classifyMajor(s, world, war, player, this.assessorMode)!;
+      const major = { ...base, label: `Declare war on ${s.nations[owner].name} and attack ${this.map.byId.get(to)?.name ?? 'them'} with ${armies.length} armies` };
+      if (!(await this.withPause(() => assessAction({ ...this.assessCtx(), major, confirmLabel: 'Declare war & attack' })))) return;
+      this.dispatch(war);
+    } else {
+      const first = land[0] ?? armies[0];
+      const major = classifyMajor(s, world, { type: 'moveArmy', army: first.id, to }, player, this.assessorMode);
+      if (major && !(await this.withPause(() => assessAction({ ...this.assessCtx(), major: { ...major, label: `${major.label} (${armies.length} armies)` }, confirmLabel: 'Give the order' })))) return;
+    }
+    let ok = 0;
+    const failed: string[] = [];
+    this.store.batch(() => {
+      for (const a of armies) {
+        if (!this.state.armies[a.id]) continue;
+        const r = this.store.dispatch({ type: 'moveArmy', army: a.id, to }, player);
+        if (r.ok) ok++; else failed.push(a.name);
+      }
+    });
+    if (ok) audio.play('order');
+    if (failed.length) this.toast(`${ok} on the way; ${failed.length} cannot get there (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}).`, 'alert');
   }
 
   private async orderMove(army: Army, to: string) {
@@ -423,6 +507,14 @@ export class Hud {
     else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
 
+  /** An achievement was unlocked. */
+  celebrate(name: string, description: string) {
+    audio.play('capital');
+    const el = h('div', { class: 'toast panel achievement' }, h('span', { class: 'ach-mark' }, '★'), h('div', null, h('strong', null, `Achievement: ${name}`), h('span', null, description)));
+    this.toasts.prepend(el);
+    setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 400); }, 6000);
+  }
+
   /** Short message for other components (e.g. "Game saved"). */
   notify(text: string) {
     this.toast(text, 'info');
@@ -473,7 +565,7 @@ export class Hud {
         : `${by} is occupying it: ${Math.round(prov.siege.progress * 100)}%`, 'danger-text');
     } else if (garrison < full - 0.05) line(garrison < 0.05 ? 'No garrison yet (rebuilding)' : `Garrison ${garrison.toFixed(1)} of ${full.toFixed(1)} (rebuilding)`);
 
-    const army = this.ownSelectedArmy();
+    const army = this.ownSelectedArmies()[0] ?? null;
     if (this.targeting && army?.id === this.targeting) {
       const err = strikeError(s, this.store.world, army.id, id);
       const foes = Object.values(s.armies).filter((x) => x.location === id && x.progress === 0 && atWar(s, army.owner, x.owner));
@@ -505,6 +597,8 @@ export class Hud {
         }
       }
     } else this.renderer.setMovePreview(null);
+    const group = this.ownSelectedArmies();
+    if (group.length > 1 && !this.targeting) parts.push(h('span', { class: 'tip-line dim' }, `Order for all ${group.length} selected armies`));
 
     this.tip.replaceChildren(...parts);
     this.tip.style.display = 'flex';

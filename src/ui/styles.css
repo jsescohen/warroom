@@ -532,3 +532,6 @@ body.targeting canvas { cursor: crosshair !important; }
 .admin-user .avatar { width: 40px; height: 40px; font-size: 18px; }
 .admin-saves { grid-column: 1 / -1; padding: 6px 0 2px 52px; }
 @media (max-width: 640px) { .admin-row { grid-template-columns: 1fr; } .admin-saves { padding-left: 0; } .admin-head { flex-wrap: wrap; } }
+
+/* shift+drag selection box */
+.select-box { position: absolute; display: none; pointer-events: none; z-index: 3; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }

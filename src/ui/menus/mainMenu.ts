@@ -1,29 +1,19 @@
-import { USERNAME_RULES } from '../../../shared/accounts/username';
 import { audio } from '../../audio/audio';
 import { cloudSaves, currentUser, signOut } from '../../auth/account';
 import { scenarios } from '../../data/scenarios';
 import { listSaves, type SaveMeta } from '../../game/saves';
-import { usernameForm } from '../accessGate';
 import { consoleScreen, menuItem } from '../console';
 import { h } from '../dom';
+import { openFeedback } from './feedback';
 import { openHowToPlay } from './howToPlay';
+import { openProfile } from './profile';
 import { openLoadScreen, timeAgo } from './loadScreen';
 import { openSettings } from './settingsScreen';
-import { openPanel } from './shell';
 
 export interface MainMenuActions {
   newGame(): void;
   load(id: string): void;
   admin(): void;
-}
-
-async function changeUsername() {
-  const panel = openPanel('Change username');
-  const { form, done } = usernameForm(currentUser()?.username ?? '', 'Save');
-  panel.body.append(h('p', { class: 'setting-hint' }, `Other players see this name (${USERNAME_RULES}).`), form);
-  const saved = await Promise.race([done.then(() => true), panel.closed.then(() => false)]);
-  panel.close();
-  if (saved) location.reload();
 }
 
 /** Who is signed in (accounts mode): picture, username, rename, sign out. */
@@ -35,7 +25,7 @@ function accountBar() {
     h('div', { class: 'cx-account-name' },
       h('strong', null, me.username ?? me.name),
       h('span', null, me.admin ? 'Admin' : 'Player', cloudSaves() ? ' · cloud saves' : '')),
-    h('button', { class: 'cx-link', title: 'Change your username', onclick: () => void changeUsername() }, 'Rename'),
+    h('button', { class: 'cx-link', title: 'Your stats, achievements and username', onclick: () => void openProfile() }, 'Profile'),
     h('button', { class: 'cx-link', onclick: () => void signOut() }, 'Sign out'),
   );
 }
@@ -54,6 +44,8 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
   items.push(['Load game', 'Your saved campaigns', () => void openLoadScreen(actions.load)]);
   items.push(['How to play', 'Armies, land, fleets, diplomacy', () => void openHowToPlay()]);
   items.push(['Settings', 'Gameplay, sound, display', () => void openSettings()]);
+  if (currentUser()) items.push(['Profile', 'Your stats and achievements', () => void openProfile()]);
+  if (currentUser()) items.push(['Feedback', 'Report a bug or suggest an idea', () => void openFeedback()]);
   if (currentUser()?.admin) items.push(['Admin', 'Players and their saves', actions.admin]);
 
   root.replaceChildren(consoleScreen({ page: 'home', title: 'Warroom Beta', right: accountBar() },

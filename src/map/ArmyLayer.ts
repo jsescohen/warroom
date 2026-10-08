@@ -36,7 +36,7 @@ export class ArmyLayer {
   private markersLayer = new Container();
   private markers = new Map<ArmyId, Marker>();
   private state: GameState | null = null;
-  private selected: ArmyId | null = null;
+  private selected = new Set<ArmyId>();
   private preview: { points: [number, number][]; ok: boolean } | null = null;
   /** Strike range ring around a fleet choosing a target. */
   private range: { army: ArmyId; radius: number } | null = null;
@@ -93,8 +93,9 @@ export class ArmyLayer {
     }
   }
 
-  setSelected(id: ArmyId | null) {
-    this.selected = id;
+  /** One army, several (a group order), or none. */
+  setSelected(ids: ArmyId | ArmyId[] | null) {
+    this.selected = new Set(ids === null ? [] : Array.isArray(ids) ? ids : [ids]);
     this.dirty = true;
     if (this.state) this.setState(this.state);
   }
@@ -109,6 +110,19 @@ export class ArmyLayer {
   setRange(army: ArmyId | null, radius = 0) {
     this.range = army ? { army, radius } : null;
     this.dirty = true;
+  }
+
+  /** Visible counters whose centre lies inside a screen rectangle. */
+  inScreenRect(x0: number, y0: number, x1: number, y1: number): ArmyId[] {
+    const [ax, bx] = x0 < x1 ? [x0, x1] : [x1, x0], [ay, by] = y0 < y1 ? [y0, y1] : [y1, y0];
+    const out: ArmyId[] = [];
+    for (const [id, m] of this.markers) {
+      if (!m.root.visible) continue;
+      const [px, py] = this.camera.worldToScreen(m.x, m.y);
+      const cx = px + m.ox, cy = py + m.oy;
+      if (cx >= ax && cx <= bx && cy >= ay && cy <= by) out.push(id);
+    }
+    return out;
   }
 
   /** Army under a screen point, preferring the player's own armies. */
@@ -146,7 +160,7 @@ export class ArmyLayer {
       }
       const mine = a.owner === player;
       const hostile = !!player && atWar(s, player, a.owner);
-      m.root.visible = z >= 0.9 || mine || (z >= 0.45 && hostile) || id === this.selected;
+      m.root.visible = z >= 0.9 || mine || (z >= 0.45 && hostile) || this.selected.has(id);
       m.root.position.set(m.x + m.ox * inv, m.y + m.oy * inv);
       m.root.scale.set(inv);
     }
@@ -199,12 +213,12 @@ export class ArmyLayer {
     const inBattle = s.battles[a.location] !== undefined && a.progress === 0;
     const rel = a.owner === player ? 'own' : player && atWar(s, player, a.owner) ? 'enemy' : 'other';
     const health = Math.round((a.strength / a.maxStrength) * 10);
-    const key = `${a.owner}|${a.id === this.selected}|${inBattle}|${rel}|${health}|${a.unitType}`;
+    const key = `${a.owner}|${this.selected.has(a.id)}|${inBattle}|${rel}|${health}|${a.unitType}`;
     if (key === m.key) return;
     m.key = key;
     const color = hexToNum(s.nations[a.owner]?.color ?? '#888888');
     const g = m.body.clear();
-    const selected = a.id === this.selected;
+    const selected = this.selected.has(a.id);
     if (selected) g.roundRect(-W / 2 - 3, -H / 2 - 3, W + 6, H + 6, 6).fill({ color: this.theme.map.selection, alpha: 0.95 });
     const edge = rel === 'enemy' ? 0xc0392b : rel === 'own' ? 0xf4ecd8 : 0x1b1b1b;
     // fleets are pill-shaped so they read as ships at a glance
@@ -232,11 +246,11 @@ export class ArmyLayer {
     const player = s.playerNation;
     const w = (px: number) => px / z;
     for (const a of Object.values(s.armies)) {
-      if (!a.path.length || (a.owner !== player && a.id !== this.selected)) continue;
+      if (!a.path.length || (a.owner !== player && !this.selected.has(a.id))) continue;
       const m = this.markers.get(a.id);
       if (!m) continue;
       const pts: [number, number][] = [[m.x, m.y], ...a.path.map((p) => this.world.provinces[p].label)];
-      const sel = a.id === this.selected;
+      const sel = this.selected.has(a.id);
       dashed(g, pts, w(sel ? 7 : 5), w(4));
       g.stroke({ width: w(sel ? 2.4 : 1.6), color: sel ? this.theme.map.selection : 0xffffff, alpha: sel ? 0.95 : 0.7, cap: 'round' });
       arrowHead(g, pts, w(sel ? 9 : 7));

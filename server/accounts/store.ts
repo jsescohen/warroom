@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { EXTRAS_SCHEMA, MemoryExtras, PgExtras, type ExtrasStore } from './extras';
 
 /**
  * Accounts and cloud saves. Postgres in production (Supabase's free database, via DATABASE_URL);
@@ -31,6 +32,8 @@ export interface StoredSave {
 
 export interface AccountStore {
   ready(): Promise<void>;
+  /** Feedback, error reports, play statistics, achievements. */
+  readonly extras: ExtrasStore;
   getProfile(id: string): Promise<Profile | null>;
   /** Creates the profile on first sign-in (as pending), refreshes name/avatar/last seen after. */
   upsertProfile(p: Pick<Profile, 'id' | 'email' | 'name' | 'avatar'>, initial: AccountStatus): Promise<Profile>;
@@ -52,6 +55,7 @@ export const MAX_SAVES_PER_USER = 30;
 // ---- memory -------------------------------------------------------------------------------------
 
 export class MemoryStore implements AccountStore {
+  readonly extras = new MemoryExtras();
   private profiles = new Map<string, Profile>();
   private saves = new Map<string, Map<string, StoredSave>>();
   async ready() {}
@@ -129,6 +133,7 @@ create table if not exists warroom_saves (
   saved_at bigint not null,
   primary key (user_id, id)
 );
+${EXTRAS_SCHEMA}
 `;
 
 type ProfileRow = { id: string; email: string; username: string | null; name: string; avatar: string | null; status: AccountStatus; created_at: string; last_seen: string };
@@ -139,9 +144,11 @@ const toProfile = (r: ProfileRow): Profile => ({
 export class PgStore implements AccountStore {
   private pool: pg.Pool;
   private init: Promise<void> | null = null;
+  readonly extras: ExtrasStore;
   constructor(url: string) {
     // Supabase requires TLS; its pooler certificate is not in Node's default store
     this.pool = new pg.Pool({ connectionString: url, max: 4, ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false } });
+    this.extras = new PgExtras(this.pool, () => this.ready());
   }
   ready() {
     return (this.init ??= this.pool.query(SCHEMA).then(() => undefined));

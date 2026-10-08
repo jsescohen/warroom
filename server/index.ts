@@ -2,6 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DevVerifier, SupabaseVerifier } from './accounts/auth';
+import { betaRouter } from './accounts/betaRoutes';
 import { Accounts } from './accounts/routes';
 import { MemoryStore, PgStore } from './accounts/store';
 import { betaRequired, requireBeta, statusHandler, unlockHandler } from './beta';
@@ -15,6 +16,7 @@ import { ProviderError } from './llm/types';
 const app = express();
 // a saved game is ~120 KB of JSON (more late in a long game)
 app.use('/api/saves', express.json({ limit: '4mb' }));
+app.use('/api/feedback', express.json({ limit: '4mb' })); // may carry the tester's game
 app.use(express.json({ limit: '200kb' }));
 // behind a hosting proxy: trust X-Forwarded-For / -Proto for rate limits and secure cookies
 if (config.production) app.set('trust proxy', 1);
@@ -38,10 +40,11 @@ app.get('/api/health', (_req, res) => {
 const acc = config.accounts;
 const accountsOn = !!(acc.supabaseUrl && acc.supabaseAnonKey) || acc.dev;
 let accounts: Accounts | null = null;
+let store: MemoryStore | PgStore | null = null;
 if (accountsOn) {
   if (config.production && !acc.databaseUrl) console.error('[accounts] DATABASE_URL is not set: accounts and saves will be lost on every restart!');
-  const store = acc.databaseUrl ? new PgStore(acc.databaseUrl) : new MemoryStore();
-  store.ready().catch((e) => console.error(`[accounts] database: ${(e as Error).message}`));
+  store = acc.databaseUrl ? new PgStore(acc.databaseUrl) : new MemoryStore();
+  store!.ready().catch((e) => console.error(`[accounts] database: ${(e as Error).message}`));
   const verifier = acc.supabaseUrl && acc.supabaseAnonKey ? new SupabaseVerifier(acc.supabaseUrl, acc.supabaseAnonKey) : new DevVerifier();
   accounts = new Accounts({ store, verifier, admins: acc.admins });
   if (!acc.admins.length) console.warn('[accounts] ADMIN_EMAILS is empty: nobody can approve accounts.');
@@ -56,7 +59,7 @@ app.get('/api/access', (_req, res) => {
 const requireAccess = (req: Request, res: Response, next: NextFunction) => (accounts ? accounts.requirePlayer(req, res, next) : requireBeta(req, res, next));
 app.get('/api/beta/status', statusHandler);
 app.post('/api/beta/unlock', unlockHandler);
-if (accounts) app.use(accounts.router());
+if (accounts) app.use(accounts.router(), betaRouter(accounts, store!.extras));
 app.use('/api/ai', requireAccess);
 
 app.get('/api/ai/info', (_req, res) => {

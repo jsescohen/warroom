@@ -20,7 +20,7 @@ export function formatDuration(hours: number): string {
   return `${d} day${d === 1 ? '' : 's'}`;
 }
 
-export type Selection = { kind: 'province'; id: string } | { kind: 'army'; id: string } | null;
+export type Selection = { kind: 'province'; id: string } | { kind: 'army'; id: string } | { kind: 'armies'; ids: string[] } | null;
 
 export interface PanelActions {
   chooseNation(nation: NationId): void;
@@ -29,6 +29,8 @@ export interface PanelActions {
   armyOrder(type: 'stopArmy' | 'splitArmy' | 'mergeArmies', army: string): void;
   /** Start choosing a target for a fleet's strike. */
   strike(army: string): void;
+  /** Orders for a selected group: halt all, merge where possible, or clear the selection. */
+  groupOrder(type: 'stop' | 'merge' | 'clear', ids: string[]): void;
   focus(provinceId: string): void;
   diplomacy(nation: NationId): void;
 }
@@ -48,7 +50,8 @@ export class SidePanel {
   }
 
   render(s: GameState, sel: Selection) {
-    if (sel?.kind === 'army' && s.armies[sel.id]) this.renderArmy(s, s.armies[sel.id]);
+    if (sel?.kind === 'armies') this.renderGroup(s, sel.ids.map((id) => s.armies[id]).filter((a): a is Army => !!a));
+    else if (sel?.kind === 'army' && s.armies[sel.id]) this.renderArmy(s, s.armies[sel.id]);
     else if (sel?.kind === 'province') this.renderProvince(s, sel.id);
     else {
       fill(this.info, 
@@ -125,6 +128,35 @@ export class SidePanel {
       a.strength >= 2 ? h('button', { class: 'btn', title: 'Split into two armies of half strength', onclick: () => this.act.armyOrder('splitArmy', a.id) }, 'Split') : null,
       canMerge ? h('button', { class: 'btn', title: 'Merge idle armies of the same type here', onclick: () => this.act.armyOrder('mergeArmies', a.id) }, 'Merge') : null,
       this.focusBtn(a.location),
+    ]);
+  }
+
+  // ---- group --------------------------------------------------------------------------------------
+
+  private renderGroup(s: GameState, armies: Army[]) {
+    const fleets = armies.filter((a) => isFleet(this.world, a.unitType)).length;
+    const strength = armies.reduce((x, a) => x + a.strength, 0);
+    const name = (id: string) => this.map.byId.get(id)?.name ?? id;
+    const moving = armies.filter((a) => a.path.length).length;
+    const canMerge = armies.some((a) => mergeable(s, a.id).length > 0);
+    fill(this.info,
+      h('div', null, h('div', { class: 'eyebrow' }, 'Your forces'), h('h2', null, `${armies.length} selected`)),
+      h('dl', { class: 'kv' },
+        h('dt', null, 'Armies'), h('dd', null, String(armies.length - fleets)),
+        fleets ? h('dt', null, 'Fleets') : null, fleets ? h('dd', null, String(fleets)) : null,
+        h('dt', null, 'Strength'), h('dd', null, strength.toFixed(0)),
+        h('dt', null, 'Moving'), h('dd', null, String(moving)),
+      ),
+      h('ul', { class: 'forces' }, ...armies.map((a) =>
+        h('li', { onclick: () => this.act.selectArmy(a.id), title: 'Select only this one' },
+          swatch(s.nations[a.owner].color), h('span', null, a.name), h('span', { class: 'dim' }, name(a.location)), h('strong', null, a.strength.toFixed(0))))),
+      h('p', { class: 'hint' }, 'Click a province to send them all there (each takes its own route). Shift+click a counter to add or remove it; Shift+drag on the map to box-select.'),
+    );
+    const ids = armies.map((a) => a.id);
+    this.setActions(`group|${ids.join(',')}|${moving > 0}|${canMerge}`, [
+      moving ? h('button', { class: 'btn', onclick: () => this.act.groupOrder('stop', ids) }, 'Halt all') : null,
+      canMerge ? h('button', { class: 'btn', title: 'Merge armies of the same type standing together', onclick: () => this.act.groupOrder('merge', ids) }, 'Merge') : null,
+      h('button', { class: 'btn', onclick: () => this.act.groupOrder('clear', ids) }, 'Deselect'),
     ]);
   }
 

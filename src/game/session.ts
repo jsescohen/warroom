@@ -15,7 +15,7 @@ export class GameSession {
   slotId: string | null;
   slotName: string | null = null;
 
-  constructor(private store: GameStore, readonly scenario: ScenarioDef, slotId: string | null, private notify: (text: string) => void) {
+  constructor(readonly store: GameStore, readonly scenario: ScenarioDef, slotId: string | null, private notify: (text: string) => void) {
     this.slotId = slotId && slotId !== AUTOSAVE_ID ? slotId : null;
     this.savedState = store.state;
     this.lastAutosaveDay = Math.floor(store.state.clock.hours / 24);

@@ -9,6 +9,10 @@ export interface Settings {
   // gameplay
   autoPause: AutoPause;
   advisor: AssessorMode;
+  /** Difficulty for new games (each game keeps its own). */
+  difficulty: 'easy' | 'normal' | 'hard';
+  /** The first-game tutorial was finished or skipped. */
+  tutorialDone: boolean;
   /** AI leaders may write to the player first. */
   aiMessages: boolean;
   /** Advisor and diplomacy dialogs pause the game while open. */
@@ -32,7 +36,7 @@ export interface Settings {
 
 const KEY = 'warroom.settings';
 export const DEFAULT_SETTINGS: Settings = {
-  autoPause: 'mine', advisor: 'major', aiMessages: true, dialogsPause: true, autosave: 'monthly', edgeScroll: true,
+  autoPause: 'mine', advisor: 'major', difficulty: 'normal', tutorialDone: false, aiMessages: true, dialogsPause: true, autosave: 'monthly', edgeScroll: true,
   muted: false, masterVolume: 0.8, sfxVolume: 0.8, musicVolume: 0.35, music: true, uiSounds: true,
   uiScale: 1, provinceLabels: true, reduceMotion: false,
 };
@@ -49,6 +53,8 @@ export function sanitizeSettings(raw: Partial<Settings>): Settings {
   return {
     autoPause: pick(raw.autoPause, ['off', 'mine', 'all'] as const, d.autoPause),
     advisor: pick(raw.advisor, ['off', 'major', 'all'] as const, d.advisor),
+    difficulty: pick(raw.difficulty, ['easy', 'normal', 'hard'] as const, d.difficulty),
+    tutorialDone: typeof raw.tutorialDone === 'boolean' ? raw.tutorialDone : d.tutorialDone,
     aiMessages: bool(raw.aiMessages, d.aiMessages),
     dialogsPause: bool(raw.dialogsPause, d.dialogsPause),
     autosave: pick(raw.autosave, ['off', 'weekly', 'monthly'] as const, d.autosave),

@@ -1,3 +1,5 @@
+import { segmented } from './menus/shell';
+import { getSettings, updateSettings } from './settings';
 import { audio } from '../audio/audio';
 import { leaderOf } from '../ai/diplomacyPrompt';
 import { provincesOf } from '../core/queries';
@@ -11,6 +13,12 @@ import { fill, h, swatch } from './dom';
  * their leader and strength. Picking one previews it on the map; any other nation can still be
  * chosen by clicking it on the map.
  */
+export const DIFFICULTY_HINT = {
+  easy: 'Easy: AI nations field smaller, weaker armies and rarely start wars.',
+  normal: 'Normal: the AI plays by the same rules as you.',
+  hard: 'Hard: AI armies are larger and fight harder, and the AI picks fights sooner, with you too.',
+};
+
 export class NationPicker {
   readonly el = h('section', { class: 'nation-picker panel' });
   private previewed: string | null = null;
@@ -51,7 +59,10 @@ export class NationPicker {
       h('div', { class: 'picker-head' },
         h('div', null, h('div', { class: 'eyebrow' }, this.scenario.subtitle), h('h2', null, 'Choose your nation')),
         h('button', { class: 'menu-x', title: 'Hide this list and browse the map', onclick: () => { this.collapsed = true; this.render(); } }, '–')),
-      h('p', { class: 'setting-hint' }, 'Or click any nation on the map and choose "Lead" in its panel.'),
+      h('div', { class: 'picker-difficulty' }, h('span', null, 'Difficulty'),
+        segmented(getSettings().difficulty, [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], (v) => { updateSettings({ difficulty: v }); this.render(); })),
+      h('p', { class: 'setting-hint' }, DIFFICULTY_HINT[getSettings().difficulty]),
+      h('p', { class: 'setting-hint' }, 'Click a nation below, or any nation on the map and choose "Lead" in its panel.'),
       h('div', { class: 'pick-list' }, ...rows),
     );
   }
@@ -68,7 +79,7 @@ export class NationPicker {
   }
 
   private choose(id: string) {
-    this.store.dispatch({ type: 'chooseNation', nation: id }, id);
+    this.store.dispatch({ type: 'chooseNation', nation: id, difficulty: getSettings().difficulty }, id);
     this.renderer.setSelection(null);
     audio.play('capture');
   }
