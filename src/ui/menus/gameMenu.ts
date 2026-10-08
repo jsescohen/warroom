@@ -2,9 +2,10 @@ import type { GameSession } from '../../game/session';
 import { h } from '../dom';
 import { openLoadScreen } from './loadScreen';
 import { openPanel } from './shell';
+import { openHowToPlay } from './howToPlay';
 import { openSettings } from './settingsScreen';
 
-/** In-game menu (Esc / ☰): resume, save, load, settings, main menu. */
+/** In-game menu (Esc / ☰): resume, save, load, how to play, settings, main menu. */
 export function openGameMenu(session: GameSession, onLoad: (id: string) => void) {
   const panel = openPanel('Game menu', { eyebrow: session.scenario.name });
   const btn = (label: string, sub: string | null, onclick: () => void, cls = '') =>
@@ -19,6 +20,7 @@ export function openGameMenu(session: GameSession, onLoad: (id: string) => void)
       if (name && (await session.save(name, true))) panel.close();
     }),
     btn('Load game', null, () => { panel.close(); void openLoadScreen(onLoad); }),
+    btn('How to play', null, () => { panel.close(); void openHowToPlay(); }),
     btn('Settings', null, () => { panel.close(); void openSettings(); }),
     btn('Main menu', session.dirty ? 'Unsaved progress is kept in the autosave (if enabled)' : null, async () => {
       panel.close();

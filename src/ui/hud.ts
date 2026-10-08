@@ -1,8 +1,8 @@
 import { getAiInfo, pingAi } from '../ai/llmClient';
 import { validate, type Action } from '../core/actions';
 import { classifyMajor, type AssessorMode } from '../core/assess';
-import { canEnter, findPath, isFleet, strikeError } from '../core/military';
-import { friendly } from '../core/queries';
+import { canEnter, findPath, garrisonMax, garrisonOf, isFleet, strikeError } from '../core/military';
+import { atWar, friendly } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import { formatDate, formatShortDate, turnNumber } from '../core/time';
@@ -11,6 +11,7 @@ import { audio } from '../audio/audio';
 import { newImportant, SPEEDS, type GameLoop, type Speed } from '../game/loop';
 import type { GameSession } from '../game/session';
 import { openGameMenu } from './menus/gameMenu';
+import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
 import type { MapRenderer } from '../map/MapRenderer';
@@ -72,6 +73,7 @@ export class Hud {
       this.playerEl,
       this.aiStatus,
       this.diploBtn,
+      h('button', { class: 'btn icon-btn', title: 'How to play (H)', 'aria-label': 'How to play', onclick: () => void this.withPause(() => openHowToPlay(), true) }, '?'),
       h('button', { class: 'btn icon-btn', title: 'Settings', 'aria-label': 'Settings', onclick: () => void this.openSettingsPaused() }, '⚙'),
       h('button', { class: 'btn icon-btn', title: 'Menu (Esc): save, load, settings, main menu', 'aria-label': 'Menu', onclick: () => void this.openMenu() }, '☰'),
       h('div', { class: 'spacer' }),
@@ -416,6 +418,7 @@ export class Hud {
     else if (e.key === 'n' || e.key === 'N') this.skip();
     else if (e.key === 'Escape') { if (this.targeting) this.endStrike(); else if (this.selection) this.select(null); else void this.openMenu(); }
     else if (e.key === 'd' || e.key === 'D') this.diplo.open(this.selectedNation() ?? undefined);
+    else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
 
   /** Short message for other components (e.g. "Game saved"). */
@@ -455,32 +458,47 @@ export class Hud {
     const owner = s.nations[s.provinces[id].owner];
     const parts: (Node | string)[] = [swatch(owner.color), h('strong', null, geo.name), h('span', { class: 'dim' }, owner.shortName)];
 
-    const g = s.provinces[id];
-    if (g.garrison !== undefined && g.garrison < 0.05) parts.push(h('span', { class: 'dim' }, 'no garrison'));
+    // what is going on here: battle, siege, a weakened garrison
+    const prov = s.provinces[id];
+    const garrison = garrisonOf(s, id), full = garrisonMax(s, id);
+    const line = (text: string, cls = 'dim') => parts.push(h('span', { class: `tip-line ${cls}` }, text));
+    if (owner.capital === id) parts.push(h('span', { class: 'dim' }, '★ capital'));
+    if (s.battles[id] !== undefined) line('⚔ Battle in progress', 'danger-text');
+    if (prov.siege) {
+      const by = s.nations[prov.siege.by]?.shortName ?? '?';
+      line(garrison > 0.05 && prov.siege.progress === 0
+        ? `${by} is fighting the garrison: ${garrison.toFixed(1)} of ${full.toFixed(1)} left`
+        : `${by} is occupying it: ${Math.round(prov.siege.progress * 100)}%`, 'danger-text');
+    } else if (garrison < full - 0.05) line(garrison < 0.05 ? 'No garrison yet (rebuilding)' : `Garrison ${garrison.toFixed(1)} of ${full.toFixed(1)} (rebuilding)`);
 
     const army = this.ownSelectedArmy();
     if (this.targeting && army?.id === this.targeting) {
       const err = strikeError(s, this.store.world, army.id, id);
-      parts.push(h('span', { class: err ? 'danger-text' : 'ok-text' }, err ?? 'Strike here'));
+      const foes = Object.values(s.armies).filter((x) => x.location === id && x.progress === 0 && atWar(s, army.owner, x.owner));
+      parts.push(h('span', { class: `tip-line ${err ? 'danger-text' : 'ok-text'}` }, err ?? `Strike here: ${foes.length ? `${foes.length} enemy unit${foes.length === 1 ? '' : 's'}` : 'the garrison'}`));
       this.renderer.setMovePreview(null);
     } else if (army && !(army.location === id && army.progress === 0)) {
       const start = this.armyPos(army);
       const world = this.store.world;
       const fleet = isFleet(world, army.unitType);
       if (fleet && !canEnter(s, army.owner, id, world, army.unitType)) {
-        parts.push(h('span', { class: 'danger-text' }, 'Not on the coast'));
+        parts.push(h('span', { class: 'tip-line danger-text' }, 'Fleets can only sail to coastal provinces'));
         this.renderer.setMovePreview([start, geo.label], false);
       } else if (!fleet && !canEnter(s, army.owner, id)) {
-        parts.push(h('span', { class: 'danger-text' }, friendly(s, army.owner, owner.id) ? 'No access (friendly)' : `Declare war on ${owner.shortName} & attack`));
+        parts.push(h('span', { class: 'tip-line danger-text' }, friendly(s, army.owner, owner.id) ? `No access: ${owner.shortName} is a friend` : `Declare war on ${owner.shortName} & attack`));
         this.renderer.setMovePreview([start, geo.label], false);
       } else {
         const route = findPath(s, world, army.owner, army.unitType, army.location, id);
         if (!route) {
-          parts.push(h('span', { class: 'danger-text' }, 'No route'));
+          const bySea = !fleet && findPath(s, world, army.owner, army.unitType, army.location, id, { ignoreSeaControl: true });
+          parts.push(h('span', { class: 'tip-line danger-text' }, bySea
+            ? 'No route: enemy fleets control the sea on the way. Win the sea with your fleet first.'
+            : fleet ? 'No sea route' : 'No route: blocked by neutral or friendly land'));
           this.renderer.setMovePreview([start, geo.label], false);
         } else {
           const enemy = !fleet && s.provinces[id].owner !== army.owner && !friendly(s, army.owner, s.provinces[id].owner);
-          parts.push(h('span', { class: enemy ? 'danger-text' : 'ok-text' }, `${enemy ? 'Attack' : fleet ? 'Sail' : 'Move'} · ${formatDuration(route.hours)}`));
+          parts.push(h('span', { class: `tip-line ${enemy ? 'danger-text' : 'ok-text'}` }, `${enemy ? 'Attack' : fleet ? 'Sail' : 'Move'} · ${formatDuration(route.hours)}`
+            + (enemy && garrison > 0.05 ? ` · garrison ${garrison.toFixed(1)} to beat first` : '')));
           this.renderer.setMovePreview([start, ...route.path.map((p) => world.provinces[p].label)], true);
         }
       }

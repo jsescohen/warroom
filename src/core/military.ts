@@ -181,11 +181,12 @@ export interface PathResult {
  * Fastest route (Dijkstra). Enemy provinces on the way add an estimate of the capture time;
  * armies avoid crossing seas the enemy controls. Fleets keep to the water.
  */
-export function findPath(s: GameState, world: World, owner: NationId, unitType: string, from: ProvinceId, to: ProvinceId): PathResult | null {
+export function findPath(s: GameState, world: World, owner: NationId, unitType: string, from: ProvinceId, to: ProvinceId,
+  opts: { ignoreSeaControl?: boolean } = {}): PathResult | null {
   if (from === to) return { path: [], hours: 0 };
   if (!world.provinces[to] || !canEnter(s, owner, to, world, unitType)) return null;
   const fleet = isFleet(world, unitType);
-  const fleets = fleet ? undefined : fleetsByProvince(s, world);
+  const fleets = fleet || opts.ignoreSeaControl ? undefined : fleetsByProvince(s, world);
   const denied = new Map<ProvinceId, boolean>();
   const blocked = (p: ProvinceId) => {
     if (!fleets?.size) return false;

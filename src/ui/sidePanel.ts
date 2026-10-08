@@ -121,7 +121,7 @@ export class SidePanel {
     this.setActions(key, [
       strike ? h('button', { class: 'btn danger', disabled: !ready || a.progress > 0, title: 'Choose a target within range (Esc cancels)', onclick: () => this.act.strike(a.id) },
         strike.kind === 'air' ? 'Air strike…' : 'Missile strike…') : null,
-      moving ? h('button', { class: 'btn', onclick: () => this.act.armyOrder('stopArmy', a.id) }, 'Halt') : null,
+      moving ? h('button', { class: 'btn', title: 'Stop and hold where it is (it finishes the stretch it is on)', onclick: () => this.act.armyOrder('stopArmy', a.id) }, 'Halt') : null,
       a.strength >= 2 ? h('button', { class: 'btn', title: 'Split into two armies of half strength', onclick: () => this.act.armyOrder('splitArmy', a.id) }, 'Split') : null,
       canMerge ? h('button', { class: 'btn', title: 'Merge idle armies of the same type here', onclick: () => this.act.armyOrder('mergeArmies', a.id) }, 'Merge') : null,
       this.focusBtn(a.location),
@@ -185,15 +185,15 @@ export class SidePanel {
     const canDeclare = !!player && player !== owner.id && !atWar(s, player, owner.id) && !(friendly(s, player, owner.id) && !allied(s, player, owner.id));
     const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}`;
     this.setActions(key, [
-      !player ? h('button', { class: 'btn primary', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
-      player && player !== owner.id ? h('button', { class: 'btn', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,
-      canDeclare ? h('button', { class: 'btn danger', onclick: () => this.act.declareWar(owner.id) }, `Declare war on ${owner.shortName}`) : null,
+      !player ? h('button', { class: 'btn primary', title: 'Play as this nation for the rest of the game', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
+      player && player !== owner.id ? h('button', { class: 'btn', title: 'Open a conversation with their leader: talk, propose deals (D)', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,
+      canDeclare ? h('button', { class: 'btn danger', title: 'Start a war: their allies may join them, and any treaty with them is broken', onclick: () => this.act.declareWar(owner.id) }, `Declare war on ${owner.shortName}`) : null,
       this.focusBtn(id),
     ]);
   }
 
   private focusBtn(provinceId: string) {
-    return h('button', { class: 'btn', onclick: () => this.act.focus(provinceId) }, 'Center on map');
+    return h('button', { class: 'btn', title: 'Move the map to this province', onclick: () => this.act.focus(provinceId) }, 'Center on map');
   }
 
   private setActions(key: string, nodes: (HTMLElement | null)[]) {
