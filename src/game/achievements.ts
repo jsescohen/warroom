@@ -25,10 +25,7 @@ export function earned(s: GameState, scenarioId: string, newEvents: GameEvent[])
   const held = Object.values(s.provinces).filter((x) => x.owner === p && x.core !== p).length;
   if (held >= 10) out.push('conqueror');
   if (held >= 50) out.push('warlord');
-  const treaties = (type: string) => new Set(s.treaties.filter((t) => t.type === type && t.parties.includes(p)).flatMap((t) => t.parties).filter((n) => n !== p));
-  if (treaties('alliance').size >= 1) out.push('diplomat');
-  if (treaties('alliance').size >= 3) out.push('web');
-  if (treaties('peace').size >= 1) out.push('peacemaker');
+  const allies = new Set(s.treaties.filter((t) => t.type === 'alliance' && t.parties.includes(p)).flatMap((t) => t.parties).filter((n) => n !== p));
   if (me?.alive && s.wars.some((w) => (w.attackers.includes(p) || w.defenders.includes(p)) && s.clock.hours - w.startedAt >= 365 * DAY)) out.push('survivor');
   if (s.winner === p) {
     out.push(`win-${scenarioId}`);
@@ -38,6 +35,11 @@ export function earned(s: GameState, scenarioId: string, newEvents: GameEvent[])
   for (const e of newEvents) {
     const n = e.nations ?? [];
     if (e.kind === 'battle-end' && n.includes(p)) out.push('first-blood');
+    // treaties count when the player signs them (not the ones the scenario starts with)
+    if (e.kind === 'agreement' && n.includes(p)) {
+      if (e.text.startsWith('Alliance')) { out.push('diplomat'); if (allies.size >= 3) out.push('web'); }
+      if (e.text.startsWith('Peace treaty')) out.push('peacemaker');
+    }
     if (e.kind === 'capital' && n[1] === p) out.push('decapitation');
     if (e.kind === 'army-destroyed' && e.text.includes(' sunk off ') && n[0] !== p) out.push('admiral');
     if (e.kind === 'strike' && n[0] === p) out.push('long-arm');

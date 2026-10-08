@@ -1,10 +1,17 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { allied, atWar, friendly, getRelation } from '../core/queries';
 import type { GameState, NationId } from '../core/types';
 import { lighten, mix, type Theme } from '../ui/themes';
 import type { World } from '../core/world';
 import { ArmyLayer } from './ArmyLayer';
 import { Camera } from './camera';
 import { provinceContains, type MapData, type ProvinceGeo } from './mapData';
+
+/** How provinces are coloured: by owner, by their feelings towards the player, or by alignment. */
+export type MapMode = 'political' | 'relations' | 'alliances';
+
+/** Alliances mode colours (also used by the legend). */
+export const ALIGNMENT_COLORS = { you: '#3d7fd6', ally: '#3fa86b', friend: '#9cc9a6', enemy: '#d0453a', neutral: '#8f8f8a' } as const;
 
 /** hover/select/command carry a province id; army carries an army id. */
 type MapEvent = 'hover' | 'select' | 'army' | 'command';
@@ -134,6 +141,11 @@ export class MapRenderer {
     if (!prev || prev.armies !== state.armies || prev.battles !== state.battles || prev.wars !== state.wars || prev.provinces !== state.provinces)
       this.armies.setState(state);
     const ownersChanged = !prev || prev.provinces !== state.provinces || prev.nations !== state.nations;
+    // relations and alliances views change with diplomacy, not just with borders
+    if (!ownersChanged && this.mapMode !== 'political' && (prev.relations !== state.relations || prev.wars !== state.wars || prev.treaties !== state.treaties)) {
+      this.map.provinces.forEach((_, i) => this.applyTint(i));
+      this.needsRender = true;
+    }
     if (!ownersChanged) return;
     this.owners = this.map.provinces.map((p) => state.provinces[p.id]?.owner ?? '');
     this.map.provinces.forEach((_, i) => this.applyTint(i));
@@ -141,6 +153,16 @@ export class MapRenderer {
     this.buildNationLabels();
     this.buildCapitals();
     this.dirtyOverlay = true;
+    this.needsRender = true;
+  }
+
+  private mapMode: MapMode = 'political';
+
+  /** Recolours every province for a map mode. */
+  setMapMode(mode: MapMode) {
+    if (mode === this.mapMode) return;
+    this.mapMode = mode;
+    this.map.provinces.forEach((_, i) => this.applyTint(i));
     this.needsRender = true;
   }
 
@@ -184,8 +206,21 @@ export class MapRenderer {
   }
 
   private nationColor(i: number): number {
-    const n = this.state?.nations[this.owners[i]];
-    if (!n) return 0x999999;
+    const s = this.state;
+    const n = s?.nations[this.owners[i]];
+    if (!s || !n) return 0x999999;
+    const p = s.playerNation;
+    const paper = (c: string) => mix(c, this.theme.map.paper, this.theme.map.paperMix * 0.6);
+    if (this.mapMode === 'relations' && p) {
+      if (n.id === p) return paper(ALIGNMENT_COLORS.you);
+      const r = getRelation(s, p, n.id); // -100 … 100: red … grey … green
+      return r >= 0 ? mix('#8f8f8a', '#3fa86b', r / 100) : mix('#8f8f8a', '#d0453a', -r / 100);
+    }
+    if (this.mapMode === 'alliances' && p) {
+      const c = n.id === p ? ALIGNMENT_COLORS.you : atWar(s, p, n.id) ? ALIGNMENT_COLORS.enemy : allied(s, p, n.id) ? ALIGNMENT_COLORS.ally
+        : friendly(s, p, n.id) ? ALIGNMENT_COLORS.friend : ALIGNMENT_COLORS.neutral;
+      return paper(c);
+    }
     return mix(n.color, this.theme.map.paper, this.theme.map.paperMix);
   }
 
@@ -522,7 +557,7 @@ export class MapRenderer {
     };
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
-      canvas.setPointerCapture(e.pointerId);
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointers */ }
       if (pointers.size === 0) { button = e.button; shift = e.shiftKey; }
       pointers.set(e.pointerId, rel(e));
       if (pointers.size === 1) {

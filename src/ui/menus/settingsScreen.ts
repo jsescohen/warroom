@@ -31,6 +31,8 @@ export function openSettings(start: Tab = 'gameplay') {
           row('AI leaders write first', 'Foreign leaders may send you offers, warnings and ultimatums.', toggle(s.aiMessages, (v) => set({ aiMessages: v }), 'AI leaders write first')),
           row('Autosave', 'Saves to the "Autosave" slot as in-game time passes, and when you leave a game.', segmented(s.autosave, [['off', 'Off'], ['weekly', 'Weekly'], ['monthly', 'Monthly']], (v) => set({ autosave: v }))),
           row('Edge scrolling', 'Dragging an army near the edge of the screen scrolls the map.', toggle(s.edgeScroll, (v) => set({ edgeScroll: v }), 'Edge scrolling')),
+          row('Tutorial', s.tutorialDone ? 'Finished or skipped. Bring it back for your next new game.' : 'Shown at the start of your next new game.',
+            s.tutorialDone ? h('button', { class: 'btn', onclick: () => { set({ tutorialDone: false }); render(); } }, 'Show again') : h('span', { class: 'dim' }, 'On')),
         );
       case 'audio':
         return fill(content,

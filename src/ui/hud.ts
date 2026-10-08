@@ -11,12 +11,14 @@ import { audio } from '../audio/audio';
 import { newImportant, SPEEDS, type GameLoop, type Speed } from '../game/loop';
 import type { GameSession } from '../game/session';
 import { openGameMenu } from './menus/gameMenu';
+import { openLedger } from './ledger';
+import { NewsTicker } from './newsTicker';
 import { openFeedback } from './menus/feedback';
 import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
-import type { MapRenderer } from '../map/MapRenderer';
-import { h, swatch } from './dom';
+import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
+import { fill, h, swatch } from './dom';
 import { leaderOf } from '../ai/diplomacyPrompt';
 import { DiplomacyDirector } from '../game/diplomacyDirector';
 import { Diplomat } from '../game/diplomat';
@@ -42,6 +44,9 @@ export class Hud {
   private diplo: DiplomacyWindow;
   private diploBtn = h('button', { class: 'btn diplo-btn', title: 'Diplomacy (D)' }, 'Diplomacy');
   private speedBeforeDiplomacy: Speed = 0;
+  private mapMode: MapMode = 'political';
+  private renderModes = () => {};
+
   /** Fleet choosing a target for its strike (the next province clicked). */
   private targeting: string | null = null;
 
@@ -81,6 +86,16 @@ export class Hud {
       focus: (id) => renderer.focusOn(id),
       diplomacy: (nation) => this.diplo.open(nation),
     });
+    const modes = h('div', { class: 'map-modes panel', role: 'radiogroup', 'aria-label': 'Map mode' });
+    const renderModes = () => fill(modes,
+      ...([['political', 'Nations', 'Political map: who owns what'], ['relations', 'Relations', 'How each nation feels about you: green friendly, red hostile'], ['alliances', 'Alliances', 'You, allies, friends, enemies and neutrals']] as [MapMode, string, string][])
+        .map(([m, label, title]) => h('button', { class: m === this.mapMode ? 'active' : '', title: `${title} (M)`, onclick: () => this.setMapMode(m) }, label)),
+      this.mapMode === 'alliances' ? h('div', { class: 'map-legend' }, ...([['you', 'You'], ['ally', 'Allies'], ['friend', 'Treaties'], ['enemy', 'At war'], ['neutral', 'Neutral']] as [keyof typeof ALIGNMENT_COLORS, string][])
+        .map(([k, l]) => h('span', null, h('i', { style: `background:${ALIGNMENT_COLORS[k]}` }), l))) : null,
+      this.mapMode === 'relations' ? h('div', { class: 'map-legend gradient' }, h('span', null, 'Hostile'), h('i', null), h('span', null, 'Friendly')) : null,
+    );
+    this.renderModes = renderModes;
+    renderModes();
     const zoom = h('div', { class: 'zoom-controls panel' },
       h('button', { title: 'Zoom in', onclick: () => this.zoomBy(1.6) }, '+'),
       h('button', { title: 'Zoom out', onclick: () => this.zoomBy(1 / 1.6) }, '−'),
@@ -93,6 +108,7 @@ export class Hud {
       this.playerEl,
       this.aiStatus,
       this.diploBtn,
+      h('button', { class: 'btn diplo-btn', title: 'Ledger: the great powers compared, with graphs (L)', onclick: () => void this.withPause(() => openLedger(store), true) }, 'Ledger'),
       ...(spectating ? [] : [h('button', { class: 'btn icon-btn', title: 'Send feedback: a bug or an idea, straight to the admin', 'aria-label': 'Send feedback', onclick: () => void this.withPause(() => openFeedback({ store, scenario }), true) }, '✎')]),
       h('button', { class: 'btn icon-btn', title: 'How to play (H)', 'aria-label': 'How to play', onclick: () => void this.withPause(() => openHowToPlay(), true) }, '?'),
       h('button', { class: 'btn icon-btn', title: 'Settings', 'aria-label': 'Settings', onclick: () => void this.openSettingsPaused() }, '⚙'),
@@ -131,7 +147,8 @@ export class Hud {
       const hostile = !!s.playerNation && (s.wars.some((w) => [w.attackers, w.defenders].some((side) => side.includes(from)) && [w.attackers, w.defenders].some((side) => side.includes(s.playerNation!))));
       this.toast(`✉ Message from ${leader} (${s.nations[from].shortName}). Click to read.`, hostile ? 'alert' : 'info', () => this.diplo.open(from));
     });
-    root.append(this.topbar, this.side.el, this.log, zoom, this.tip, this.toasts, this.diplo.el);
+    const news = new NewsTicker(store, scenario);
+    root.append(this.topbar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
 
     renderer.on('select', (id) => {
       if (this.targeting) { if (id) this.fireStrike(id); return; }
@@ -233,6 +250,12 @@ export class Hud {
 
   // ---- selection & orders -------------------------------------------------------------------------
 
+  /** Told whenever the selection changes (the tutorial listens). */
+  onSelectionChange: (() => void) | null = null;
+  get currentSelection(): Selection {
+    return this.selection;
+  }
+
   private select(sel: Selection) {
     if (this.targeting && !(sel?.kind === 'army' && sel.id === this.targeting)) this.endStrike();
     this.selection = sel;
@@ -241,6 +264,15 @@ export class Hud {
     this.renderer.setMovePreview(null);
     this.side.render(this.state, sel);
     this.renderTip();
+    this.onSelectionChange?.();
+  }
+
+  private setMapMode(m: MapMode) {
+    if (m !== 'political' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
+    this.mapMode = m;
+    this.renderer.setMapMode(m);
+    this.renderModes();
+    audio.play('click');
   }
 
   // ---- strikes ------------------------------------------------------------------------------------
@@ -504,6 +536,8 @@ export class Hud {
     else if (e.key === 'n' || e.key === 'N') this.skip();
     else if (e.key === 'Escape') { if (this.targeting) this.endStrike(); else if (this.selection) this.select(null); else void this.openMenu(); }
     else if (e.key === 'd' || e.key === 'D') this.diplo.open(this.selectedNation() ?? undefined);
+    else if (e.key === 'l' || e.key === 'L') void this.withPause(() => openLedger(this.store), true);
+    else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : 'political');
     else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
 

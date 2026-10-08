@@ -24,7 +24,8 @@ import { showAdminPanel } from './ui/admin/adminPanel';
 import { showMainMenu } from './ui/menus/mainMenu';
 import { NationPicker } from './ui/nationPicker';
 import { ensureAccess } from './ui/accessGate';
-import { applyDisplaySettings, onSettingsChange } from './ui/settings';
+import { applyDisplaySettings, getSettings, onSettingsChange } from './ui/settings';
+import { Tutorial } from './ui/tutorial';
 import { applyTheme, getTheme, themeFontsReady } from './ui/themes';
 
 /**
@@ -135,6 +136,15 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   setErrorContext(() => ({ scenarioId: scenario.id, date: formatDate(store.state.clock), nation: store.state.playerNation, spectating: readOnly }));
   trackPlayStats(store, scenario);
   new AchievementTracker(store, scenario, (a) => hud?.celebrate(a.name, a.description));
+  // first new game: the walkthrough starts once a nation is chosen
+  if (!readOnly && !saved && !getSettings().tutorialDone) {
+    const startTutorial = () => {
+      const t = new Tutorial(store, loop, () => hud!.currentSelection);
+      hud!.onSelectionChange = () => t.check();
+    };
+    if (store.state.playerNation) startTutorial();
+    else { const off = store.subscribe((s) => { if (s.playerNation) { off(); startTutorial(); } }); }
+  }
   loading.remove();
 
   // Open on the player's capital, or the first great power's.

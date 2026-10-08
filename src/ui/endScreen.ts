@@ -3,7 +3,9 @@ import { provincesOf } from '../core/queries';
 import type { GameStore } from '../core/store';
 import { formatDate } from '../core/time';
 import type { GameState } from '../core/types';
+import { legend, lineChart } from './charts';
 import { h } from './dom';
+import { historySeries } from './ledger';
 
 /**
  * Victory and defeat screens. Shown once when the player's nation wins (reaches the conquest goal)
@@ -49,6 +51,10 @@ export class EndScreen {
           ? `${nation.shortName} dominates the world. History will remember this reign.`
           : `${nation.shortName} has fallen. Its people now answer to foreign masters.`),
         h('dl', { class: 'kv end-stats' }, ...stats.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)])),
+        ...(() => {
+          const { series, xLabels } = historySeries(s, 'p');
+          return series.length ? [h('div', { class: 'eyebrow' }, 'Territory over the game'), lineChart(series, xLabels, { height: 170, title: 'Territory' }), legend(series)] : [];
+        })(),
         h('div', { class: 'modal-actions' },
           kind === 'victory' ? h('button', { class: 'btn', onclick: close }, 'Keep playing') : h('button', { class: 'btn', onclick: close }, 'Watch the world'),
           h('button', { class: 'btn', onclick: this.onNewGame }, 'New game'),
