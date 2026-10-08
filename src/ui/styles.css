@@ -596,3 +596,5 @@ body.targeting canvas { cursor: crosshair !important; }
 .admin-user .avatar { width: 40px; height: 40px; font-size: 18px; }
 .admin-saves { grid-column: 1 / -1; padding: 6px 0 2px 52px; }
 @media (max-width: 640px) { .admin-row { grid-template-columns: 1fr; } .admin-saves { padding-left: 0; } .admin-head { flex-wrap: wrap; } }
+.username-input { text-transform: none; letter-spacing: 0.04em; }
+.account-bar .btn { white-space: nowrap; padding: 5px 10px; }

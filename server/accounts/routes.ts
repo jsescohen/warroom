@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
+import { usernameError } from '../../shared/accounts/username';
 import type { Verifier } from './auth';
 import { MAX_SAVES_PER_USER, type AccountStatus, type AccountStore, type Profile, type SaveMetaJson } from './store';
 
@@ -51,6 +52,7 @@ export class Accounts {
       const c = await this.caller(req);
       if (!c) return res.status(401).json({ error: 'Sign in to play.' });
       if (c.profile.status !== 'approved') return res.status(403).json({ error: 'Your account is waiting for approval.' });
+      if (!c.profile.username) return res.status(403).json({ error: 'Choose a username first.' });
       res.locals.caller = c;
       next();
     } catch (e) {
@@ -69,6 +71,16 @@ export class Accounts {
     }
   };
 
+  /** Validates and sets a username; returns an error message instead when it cannot. */
+  private async rename(id: string, raw: unknown): Promise<Profile | string> {
+    const username = typeof raw === 'string' ? raw.trim() : '';
+    const err = usernameError(username);
+    if (err) return err;
+    const out = await this.o.store.setUsername(id, username);
+    if (out === 'taken') return 'That username is taken.';
+    return out ?? 'No such account.';
+  }
+
   router(): Router {
     const r = express.Router();
     const { store } = this.o;
@@ -80,6 +92,14 @@ export class Accounts {
       const c = await this.caller(req);
       if (!c) return res.status(401).json({ error: 'Not signed in.' });
       res.json({ ...publicProfile(c.profile), admin: c.admin });
+    }));
+
+    r.put('/api/me/username', wrap(async (req, res) => {
+      const c = await this.caller(req);
+      if (!c) return res.status(401).json({ error: 'Not signed in.' });
+      const out = await this.rename(c.profile.id, (req.body as { username?: unknown })?.username);
+      if (typeof out === 'string') return res.status(out.includes('taken') ? 409 : 400).json({ error: out });
+      res.json({ ...publicProfile(out), admin: c.admin });
     }));
 
     // ---- cloud saves (the caller's own) -------------------------------------------------------
@@ -124,6 +144,11 @@ export class Accounts {
       const p = await store.setStatus(target.id, status);
       res.json(publicProfile(p!));
     }));
+    r.post('/api/admin/users/:id/username', this.requireAdmin, wrap(async (req, res) => {
+      const out = await this.rename(String(req.params.id), (req.body as { username?: unknown })?.username);
+      if (typeof out === 'string') return res.status(out.includes('taken') ? 409 : out === 'No such account.' ? 404 : 400).json({ error: out });
+      res.json(publicProfile(out));
+    }));
     r.get('/api/admin/users/:id/saves', this.requireAdmin, wrap(async (req, res) => res.json(await store.listSaves(String(req.params.id)))));
     r.get('/api/admin/users/:id/saves/:sid', this.requireAdmin, wrap(async (req, res) => {
       const s = await store.getSave(String(req.params.id), String(req.params.sid));
@@ -134,4 +159,4 @@ export class Accounts {
   }
 }
 
-const publicProfile = (p: Profile) => ({ id: p.id, email: p.email, name: p.name, avatar: p.avatar, status: p.status, createdAt: p.createdAt, lastSeen: p.lastSeen });
+const publicProfile = (p: Profile) => ({ id: p.id, email: p.email, username: p.username, name: p.name, avatar: p.avatar, status: p.status, createdAt: p.createdAt, lastSeen: p.lastSeen });

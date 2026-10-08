@@ -20,6 +20,8 @@ export interface Access {
 export interface Me {
   id: string;
   email: string;
+  /** What other players see; null until the player picks one. */
+  username: string | null;
   name: string;
   avatar: string | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -85,6 +87,14 @@ export async function loadMe(): Promise<Me | null> {
   if (res.status === 401) return (me = null);
   if (!res.ok) throw new Error(`Could not reach the game server (HTTP ${res.status}).`);
   return (me = await res.json());
+}
+
+/** Picks or changes the username; throws with the server's reason when it is not allowed. */
+export async function setUsername(username: string): Promise<Me> {
+  const res = await apiFetch('/api/me/username', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username }) });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+  return (me = body as Me);
 }
 
 /** Starts sign-in: leaves for Google / Discord and comes back to this page. */

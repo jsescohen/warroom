@@ -10,6 +10,9 @@ export type AccountStatus = 'pending' | 'approved' | 'rejected';
 export interface Profile {
   id: string;
   email: string;
+  /** Chosen by the player, unique (ignoring case); what other players see. Null until chosen. */
+  username: string | null;
+  /** From Google / Discord; only the admin sees it. */
   name: string;
   avatar: string | null;
   status: AccountStatus;
@@ -33,6 +36,8 @@ export interface AccountStore {
   upsertProfile(p: Pick<Profile, 'id' | 'email' | 'name' | 'avatar'>, initial: AccountStatus): Promise<Profile>;
   listProfiles(): Promise<Profile[]>;
   setStatus(id: string, status: AccountStatus): Promise<Profile | null>;
+  /** Sets the username, or returns 'taken' if another account has it (ignoring case). */
+  setUsername(id: string, username: string): Promise<Profile | 'taken' | null>;
   listSaves(user: string): Promise<SaveMetaJson[]>;
   getSave(user: string, id: string): Promise<StoredSave | null>;
   putSave(user: string, save: StoredSave): Promise<void>;
@@ -56,7 +61,7 @@ export class MemoryStore implements AccountStore {
   async upsertProfile(p: Pick<Profile, 'id' | 'email' | 'name' | 'avatar'>, initial: AccountStatus) {
     const now = Date.now();
     const old = this.profiles.get(p.id);
-    const next: Profile = old ? { ...old, ...p, lastSeen: now } : { ...p, status: initial, createdAt: now, lastSeen: now };
+    const next: Profile = old ? { ...old, ...p, lastSeen: now } : { ...p, username: null, status: initial, createdAt: now, lastSeen: now };
     this.profiles.set(p.id, next);
     return next;
   }
@@ -67,6 +72,14 @@ export class MemoryStore implements AccountStore {
     const p = this.profiles.get(id);
     if (!p) return null;
     const next = { ...p, status };
+    this.profiles.set(id, next);
+    return next;
+  }
+  async setUsername(id: string, username: string) {
+    const p = this.profiles.get(id);
+    if (!p) return null;
+    if ([...this.profiles.values()].some((o) => o.id !== id && o.username?.toLowerCase() === username.toLowerCase())) return 'taken' as const;
+    const next = { ...p, username };
     this.profiles.set(id, next);
     return next;
   }
@@ -106,6 +119,8 @@ create table if not exists warroom_profiles (
   created_at bigint not null,
   last_seen bigint not null
 );
+alter table warroom_profiles add column if not exists username text;
+create unique index if not exists warroom_profiles_username on warroom_profiles (lower(username));
 create table if not exists warroom_saves (
   user_id text not null references warroom_profiles(id) on delete cascade,
   id text not null,
@@ -116,9 +131,9 @@ create table if not exists warroom_saves (
 );
 `;
 
-type ProfileRow = { id: string; email: string; name: string; avatar: string | null; status: AccountStatus; created_at: string; last_seen: string };
+type ProfileRow = { id: string; email: string; username: string | null; name: string; avatar: string | null; status: AccountStatus; created_at: string; last_seen: string };
 const toProfile = (r: ProfileRow): Profile => ({
-  id: r.id, email: r.email, name: r.name, avatar: r.avatar, status: r.status, createdAt: Number(r.created_at), lastSeen: Number(r.last_seen),
+  id: r.id, email: r.email, username: r.username, name: r.name, avatar: r.avatar, status: r.status, createdAt: Number(r.created_at), lastSeen: Number(r.last_seen),
 });
 
 export class PgStore implements AccountStore {
@@ -156,6 +171,16 @@ export class PgStore implements AccountStore {
     await this.ready();
     const r = await this.pool.query<ProfileRow>('update warroom_profiles set status = $2 where id = $1 returning *', [id, status]);
     return r.rows[0] ? toProfile(r.rows[0]) : null;
+  }
+  async setUsername(id: string, username: string) {
+    await this.ready();
+    try {
+      const r = await this.pool.query<ProfileRow>('update warroom_profiles set username = $2 where id = $1 returning *', [id, username]);
+      return r.rows[0] ? toProfile(r.rows[0]) : null;
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') return 'taken' as const; // unique violation
+      throw e;
+    }
   }
   async listSaves(user: string) {
     await this.ready();

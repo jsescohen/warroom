@@ -1,4 +1,5 @@
-import { initAccess, loadMe, signIn, signOut, type Me } from '../auth/account';
+import { USERNAME_RULES, usernameError } from '../../shared/accounts/username';
+import { initAccess, loadMe, setUsername, signIn, signOut, type Me } from '../auth/account';
 import { ensureBetaAccess } from './betaGate';
 import { h } from './dom';
 
@@ -21,6 +22,7 @@ export async function ensureAccess(root: HTMLElement): Promise<void> {
       continue;
     }
     if (!me) { await signInScreen(root, access.providers ?? [], !!access.dev); continue; }
+    if (!me.username) { await usernameScreen(root, me); continue; }
     if (me.status === 'approved') { root.replaceChildren(); return; }
     await waitingScreen(root, me);
   }
@@ -45,13 +47,47 @@ function devForm(go: (provider: string, email: string) => void) {
   return form;
 }
 
+/** First sign-in: the name other players will see (not the Google / Discord name). */
+function usernameScreen(root: HTMLElement, me: Me): Promise<void> {
+  const { form, done } = usernameForm(me.name.replace(/[^A-Za-z0-9_]/g, '').slice(0, 20), 'Continue');
+  const p = screen(root, 'Choose a username', `This is the name other players see (${USERNAME_RULES}). Your email stays private.`, [form]);
+  return Promise.race([p, done]);
+}
+
+/** A username field with live checks; `done` resolves once the server accepted the name. */
+export function usernameForm(initial: string, label: string) {
+  const input = h('input', { class: 'beta-input username-input', type: 'text', value: initial, maxlength: '20', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Username' }) as HTMLInputElement;
+  const error = h('p', { class: 'beta-error', role: 'alert' });
+  const submit = h('button', { class: 'main-btn primary', type: 'submit' }, h('span', { class: 'main-btn-label' }, label)) as HTMLButtonElement;
+  const form = h('form', { class: 'beta-form' }, input, submit, error) as HTMLFormElement;
+  let resolve!: () => void;
+  const done = new Promise<void>((r) => (resolve = r));
+  input.addEventListener('input', () => { error.textContent = input.value ? usernameError(input.value) ?? '' : ''; });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = usernameError(input.value);
+    if (err) { error.textContent = err; input.focus(); return; }
+    submit.disabled = true;
+    try {
+      await setUsername(input.value.trim());
+      resolve();
+    } catch (x) {
+      error.textContent = (x as Error).message;
+      input.select();
+    }
+    submit.disabled = false;
+  };
+  setTimeout(() => input.focus(), 0);
+  return { form, done };
+}
+
 function waitingScreen(root: HTMLElement, me: Me): Promise<void> {
   const rejected = me.status === 'rejected';
   return screen(root,
     rejected ? 'Not approved' : 'Waiting for approval',
     rejected
-      ? `The admin has not let ${me.email} into the beta.`
-      : `You are signed in as ${me.email}. Your request is on the admin’s list: once you are let in, press "Check again".`,
+      ? `The admin has not let ${me.username} (${me.email}) into the beta.`
+      : `You are signed in as ${me.username} (${me.email}). Your request is on the admin’s list: once you are let in, press "Check again".`,
     [
       rejected ? null : button('Check again', () => undefined, true, true),
       button('Sign out', () => void signOut()),

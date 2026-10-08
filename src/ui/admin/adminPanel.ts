@@ -7,6 +7,7 @@ import { timeAgo } from '../menus/loadScreen';
 interface AdminUser {
   id: string;
   email: string;
+  username: string | null;
   name: string;
   avatar: string | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -58,7 +59,19 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
     try {
       await api(`/api/admin/users/${encodeURIComponent(u.id)}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) });
       await load();
-      status.textContent = `${u.name} (${u.email}) is now ${next === 'approved' ? 'allowed to play' : next === 'rejected' ? 'blocked' : 'waiting'}.`;
+      status.textContent = `${u.username ?? u.name} (${u.email}) is now ${next === 'approved' ? 'allowed to play' : next === 'rejected' ? 'blocked' : 'waiting'}.`;
+    } catch (e) {
+      status.textContent = (e as Error).message;
+    }
+  };
+
+  const rename = async (u: AdminUser) => {
+    const username = window.prompt(`New username for ${u.email}`, u.username ?? '')?.trim();
+    if (!username || username === u.username) return;
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(u.id)}/username`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username }) });
+      await load();
+      status.textContent = `Renamed to ${username}.`;
     } catch (e) {
       status.textContent = (e as Error).message;
     }
@@ -82,8 +95,8 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
       h('div', { class: 'admin-user' },
         u.avatar ? h('img', { class: 'avatar', src: u.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('span', { class: 'avatar' }, u.name.slice(0, 1).toUpperCase()),
         h('div', null,
-          h('div', { class: 'save-name' }, u.name, u.admin ? h('span', { class: 'chip' }, 'Admin') : null),
-          h('div', { class: 'save-sub' }, u.email),
+          h('div', { class: 'save-name' }, u.username ?? h('span', { class: 'dim' }, '(no username yet)'), u.admin ? h('span', { class: 'chip' }, 'Admin') : null),
+          h('div', { class: 'save-sub' }, `${u.name} · ${u.email}`),
           h('div', { class: 'save-sub dim' }, `Joined ${timeAgo(u.createdAt)} · last seen ${timeAgo(u.lastSeen)} · ${u.saves} save${u.saves === 1 ? '' : 's'}`),
         ),
       ),
@@ -92,6 +105,7 @@ export async function showAdminPanel(root: HTMLElement, actions: { menu(): void;
         u.status === 'pending' ? h('button', { class: 'btn danger', onclick: () => void setStatus(u, 'rejected') }, 'Decline') : null,
         u.status === 'approved' && !u.admin ? h('button', { class: 'btn danger', title: 'They can no longer play; their saves are kept', onclick: () => void setStatus(u, 'rejected') }, 'Block') : null,
         u.saves ? h('button', { class: 'btn', onclick: () => void toggleSaves(u) }, open.has(u.id) ? 'Hide saves' : 'Saves') : null,
+        h('button', { class: 'btn', title: 'Change their username (e.g. if it is offensive)', onclick: () => void rename(u) }, 'Rename'),
       ),
       open.has(u.id) ? h('div', { class: 'admin-saves' },
         saves === undefined ? h('p', { class: 'dim' }, 'Loading…')

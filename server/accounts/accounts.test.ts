@@ -27,6 +27,10 @@ const call = async (path: string, as?: string, init: RequestInit = {}) => {
   const res = await fetch(base + path, { ...init, headers });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
+const named = async (email: string, username: string) => {
+  await call('/api/me', email);
+  return call('/api/me/username', email, { method: 'PUT', body: JSON.stringify({ username }) });
+};
 const save = (id: string) => ({ id, name: 'Test', scenarioId: 'ww2', savedAt: Date.now(), format: 1, state: { version: 1 } });
 
 describe('accounts', () => {
@@ -38,12 +42,14 @@ describe('accounts', () => {
 
   it('lets new players in only once the admin approves them', async () => {
     const me = await call('/api/me', 'newbie@war.test');
-    expect(me.body).toMatchObject({ email: 'newbie@war.test', status: 'pending', admin: false });
+    expect(me.body).toMatchObject({ email: 'newbie@war.test', status: 'pending', admin: false, username: null });
+    await named('newbie@war.test', 'Newbie');
     expect((await call('/api/ai/info', 'newbie@war.test')).status).toBe(403);
     expect((await call('/api/admin/users', 'newbie@war.test')).status).toBe(403);
 
     // the admin is let in automatically and sees the request
     expect((await call('/api/me', 'boss@war.test')).body).toMatchObject({ status: 'approved', admin: true });
+    await named('boss@war.test', 'Boss');
     const users = (await call('/api/admin/users', 'boss@war.test')).body as { id: string; email: string; status: string }[];
     const newbie = users.find((u) => u.email === 'newbie@war.test')!;
     expect(newbie.status).toBe('pending');
@@ -58,7 +64,7 @@ describe('accounts', () => {
   });
 
   it('keeps each player’s saves in their account, readable by the admin', async () => {
-    await call('/api/me', 'pat@war.test');
+    await named('pat@war.test', 'Pat');
     const users = (await call('/api/admin/users', 'boss@war.test')).body as { id: string; email: string }[];
     const pat = users.find((u) => u.email === 'pat@war.test')!;
     await call(`/api/admin/users/${pat.id}/status`, 'boss@war.test', { method: 'POST', body: JSON.stringify({ status: 'approved' }) });
@@ -74,5 +80,21 @@ describe('accounts', () => {
     expect((await call(`/api/admin/users/${pat.id}/saves/s1`, 'boss@war.test')).body).toMatchObject({ id: 's1' });
     expect((await call('/api/saves/s1', 'pat@war.test', { method: 'DELETE' })).status).toBe(200);
     expect((await call('/api/saves/s1', 'pat@war.test')).status).toBe(404);
+  });
+  it('gives every player a unique, valid username before they can play', async () => {
+    await call('/api/me', 'sam@war.test');
+    const users = (await call('/api/admin/users', 'boss@war.test')).body as { id: string; email: string }[];
+    const sam = users.find((u) => u.email === 'sam@war.test')!;
+    await call('/api/admin/users/' + sam.id + '/status', 'boss@war.test', { method: 'POST', body: JSON.stringify({ status: 'approved' }) });
+    expect((await call('/api/ai/info', 'sam@war.test')).body).toMatchObject({ error: 'Choose a username first.' });
+    expect((await named('sam@war.test', 'x')).status).toBe(400);
+    expect((await named('sam@war.test', 'admin')).status).toBe(400);
+    expect((await named('sam@war.test', 'pAt')).status).toBe(409); // taken, ignoring case
+    expect((await named('sam@war.test', 'Sam_1939')).body).toMatchObject({ username: 'Sam_1939' });
+    expect((await call('/api/ai/info', 'sam@war.test')).status).toBe(200);
+    // the admin can rename an account
+    const renamed = await call('/api/admin/users/' + sam.id + '/username', 'boss@war.test', { method: 'POST', body: JSON.stringify({ username: 'Samuel' }) });
+    expect(renamed.body).toMatchObject({ username: 'Samuel' });
+    expect((await call('/api/admin/users/' + sam.id + '/username', 'sam@war.test', { method: 'POST', body: JSON.stringify({ username: 'Hacker' }) })).status).toBe(403);
   });
 });
