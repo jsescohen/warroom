@@ -3,7 +3,7 @@ import { accessOf, needsOf, producedBy } from './economy';
 import { setOwner } from './military';
 import { allied, atWar, friendly, provincesOf } from './queries';
 import { formatShortDate } from './time';
-import type { AgreementType, GameState, NationId, Proposal, ProposalTerms, ProvinceId, Treaty } from './types';
+import { relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms, type ProvinceId, type Treaty } from './types';
 import { declareWar, makePeace } from './war';
 import type { World } from './world';
 
@@ -317,6 +317,8 @@ export interface Initiative {
 }
 
 const CONTACT_COOLDOWN_DAYS = 25;
+/** A leader whose last letter got no reply waits this long before writing again. */
+const UNANSWERED_DAYS = 90;
 const GLOBAL_GAP_DAYS = 4;
 
 /**
@@ -336,6 +338,10 @@ export function pickInitiative(s: GameState, world: World): Initiative | null {
   const candidates: { score: number; init: Initiative }[] = [];
   for (const n of ids) {
     if (now - (s.diplomacy.lastContact[n] ?? -1e9) < CONTACT_COOLDOWN_DAYS * 24 || pending(n)) continue;
+    // no letter after letter: wait until the last one was read, and for an answer a while longer
+    const key = relationKey(n, player);
+    const last = s.diplomacy.chats[key]?.at(-1);
+    if (last && last.from === n && (last.id > (s.diplomacy.read?.[key] ?? -1) || now - last.at < UNANSWERED_DAYS * 24)) continue;
     const rel = getRel(s, n, player);
     const theirPower = militaryPower(s, world, n);
     const borders = borderProvinces(s, world, n, player).length > 0;

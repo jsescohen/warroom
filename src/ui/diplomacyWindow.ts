@@ -46,6 +46,7 @@ export class DiplomacyWindow {
   /** A failed reply, per nation: shown under the conversation with an "Ask again" button. */
   private failed = new Map<NationId, string>();
   private retryBox = h('div', { class: 'diplo-retry', style: 'display:none' });
+  private readAllBtn = h('button', { class: 'btn small diplo-readall', title: 'Mark every letter as read' }, 'Mark all read');
   private composeType = h('select', { class: 'diplo-select' });
   private composeExtra = h('div', { class: 'diplo-extra' });
   private input = h('textarea', { class: 'diplo-input', rows: 2, placeholder: 'Write a message…', maxlength: 600 });
@@ -66,7 +67,7 @@ export class DiplomacyWindow {
     );
     const chat = h('section', { class: 'diplo-chat' }, this.header, this.transcript, this.typing, this.retryBox, composer);
     const side = h('aside', { class: 'diplo-side' },
-      h('div', { class: 'diplo-side-head' }, h('h2', null, 'Diplomacy'), h('button', { class: 'diplo-close', title: 'Close (Esc)', onclick: () => this.close() }, '✕')),
+      h('div', { class: 'diplo-side-head' }, h('h2', null, 'Diplomacy'), this.readAllBtn, h('button', { class: 'diplo-close', title: 'Close (Esc)', onclick: () => this.close() }, '✕')),
       this.search, this.list);
     this.panel.append(side, chat);
     this.el.append(this.panel);
@@ -78,6 +79,7 @@ export class DiplomacyWindow {
     this.search.addEventListener('input', () => this.renderList());
     this.composeType.addEventListener('change', () => { this.pickGive.clear(); this.pickTake.clear(); this.pickTarget = ''; this.pickTrade = { sell: '', buy: '', gold: 0 }; this.renderExtra(); });
     this.sendBtn.addEventListener('click', () => void this.send());
+    this.readAllBtn.addEventListener('click', () => this.markAllRead());
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.send(); }
     });
@@ -196,6 +198,20 @@ export class DiplomacyWindow {
       ));
     }
     fill(this.list, ...rows);
+    this.readAllBtn.style.display = this.unreadTotal() && !this.store.readOnly ? '' : 'none';
+  }
+
+  /** Marks every conversation as read. */
+  private markAllRead() {
+    const s = this.store.state;
+    const me = s.playerNation;
+    if (!me) return;
+    this.store.batch(() => {
+      for (const n of Object.keys(s.nations)) {
+        const last = s.diplomacy.chats[relationKey(me, n)]?.at(-1);
+        if (last && this.unread(s, n)) this.store.dispatch({ type: 'markRead', with: n, upTo: last.id }, me);
+      }
+    });
   }
 
   private renderHeader() {

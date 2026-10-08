@@ -632,3 +632,5 @@ body.targeting canvas { cursor: crosshair !important; }
 
 .diplo-gold { width: 64px; margin-left: 4px; }
 .diplo-gold-label { display: inline-flex; align-items: center; }
+
+.diplo-readall { margin-left: auto; margin-right: 8px; }
