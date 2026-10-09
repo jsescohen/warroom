@@ -45,7 +45,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'economy', label: 'Economy',
-    intro: 'Your land and people earn money every month; armies cost money and materials to raise, and money to keep. Click the treasury (◈) in the top bar, or press T, for your budget, stockpiles and the world market.',
+    intro: 'Your land and people earn money every month; armies cost money and materials to raise, and money to keep. Click the money (◈) in the top bar to see your money and resources and what each gains a month; press T for the full Treasury and the world market.',
     items: [
       ['Income', 'Paid at the start of each month: taxes from your land and people. Developed and populous provinces pay more; distant colonies less.'],
       ['Upkeep', 'Every army costs money each month, stronger units more. If the treasury runs dry, unpaid troops desert.'],

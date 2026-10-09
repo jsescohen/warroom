@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.7.1',
+    date: '2026-10-09',
+    title: 'Your resources at a glance',
+    items: [
+      { title: 'Money and resources in the top bar', how: 'Click the money (◈) at the top: a list drops down with your money and every resource, how much you have and how much you gain or lose each month. A resource in red is one your army needs and is running out of. The button at the bottom opens the full Treasury and market (or press T).' },
+    ],
+  },
+  {
     version: '0.7',
     date: '2026-10-09',
     title: 'Resources, the world market and weapons',

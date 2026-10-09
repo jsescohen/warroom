@@ -115,6 +115,29 @@ export function producedBy(s: GameState, world: World, n: NationId): Map<string,
   return index.get(n) ?? NONE;
 }
 
+/**
+ * How each of a nation's stockpiles changes in a month: production, plus trade agreements coming
+ * in, minus those going out, minus what the armies use (detailed economy).
+ */
+export function resourceFlow(s: GameState, world: World, n: NationId): Record<string, number> {
+  const flow: Record<string, number> = {};
+  for (const r of Object.keys(world.resources)) flow[r] = 0;
+  for (const [r, q] of producedBy(s, world, n)) flow[r] += q;
+  for (const t of tradeRoutes(s, n)) {
+    const [a, b] = t.parties;
+    const out = n === a ? t.trade?.sell : t.trade?.buy;
+    const inn = n === a ? t.trade?.buy : t.trade?.sell;
+    const other = n === a ? b : a;
+    if (out && producedBy(s, world, n).has(out)) flow[out] -= TRADE_FLOW;
+    if (inn && producedBy(s, world, other).has(inn)) flow[inn] += TRADE_FLOW;
+  }
+  if (s.rules.economy === 'detailed') {
+    for (const a of Object.values(s.armies)) if (a.owner === n) for (const r of needsOf(world, a.unitType)) flow[r] -= STOCK_USE * (a.maxStrength / BASE_STRENGTH);
+  }
+  for (const r of Object.keys(flow)) flow[r] = Math.round(flow[r] * 10) / 10;
+  return flow;
+}
+
 export const tradeRoutes = (s: GameState, n?: NationId) => s.treaties.filter((t) => t.type === 'trade' && (!n || t.parties.includes(n)));
 
 /** Resources a nation gets through trade: [resource, supplier], while the supplier still produces it. */

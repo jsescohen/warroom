@@ -21,7 +21,7 @@ import { openEconomy } from './economyPanel';
 import type { OnlineHud } from '../net/onlineGame';
 import type { WeaponKind } from '../core/weapons';
 import { confirmDialog } from './modal';
-import { budgetOf } from '../core/economy';
+import { budgetOf, marketPrice, resourceFlow, STOCK_CAP, usedBy } from '../core/economy';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
 import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
 import { fill, h, swatch } from './dom';
@@ -42,7 +42,9 @@ export class Hud {
   private tip = h('div', { class: 'hover-tip panel', style: 'display:none' });
   private aiStatus = h('div', { class: 'ai-status' });
   private playerEl = h('div', { class: 'player' });
-  private treasuryEl = h('button', { class: 'btn treasury-btn', title: 'Treasury: income, upkeep, resources and trade (T)' });
+  private treasuryEl = h('button', { class: 'btn treasury-btn', title: 'Money and resources (T opens the Treasury)', 'aria-haspopup': 'true' });
+  /** The dropdown under the money: money and every resource, what you have and what you gain a month. */
+  private stockMenu = h('div', { class: 'stock-menu panel', role: 'menu', style: 'display:none' });
   private treasuryKey = '';
   private speedEl = h('div', { class: 'time-controls' });
   private dateEl = h('div', { class: 'date' });
@@ -127,7 +129,10 @@ export class Hud {
       h('button', { title: 'Zoom out', onclick: () => this.zoomBy(1 / 1.6) }, '−'),
       h('button', { title: 'Show whole map', onclick: () => renderer.camera.flyTo(map.width / 2, map.height / 2, renderer.camera.minZoom) }, '⤢'),
     );
-    this.treasuryEl.addEventListener('click', () => this.openTreasury());
+    this.treasuryEl.addEventListener('click', (e) => { e.stopPropagation(); this.toggleStockMenu(); });
+    document.addEventListener('pointerdown', (e) => {
+      if (this.stockMenu.style.display !== 'none' && !this.stockMenu.contains(e.target as Node) && !this.treasuryEl.contains(e.target as Node)) this.toggleStockMenu(false);
+    });
     const spectating = store.readOnly;
     if (spectating) this.diploBtn.style.display = 'none';
     this.topbar.append(
@@ -181,7 +186,7 @@ export class Hud {
       this.toast(`✉ Message from ${leader} (${s.nations[from].shortName}). Click to read.`, hostile ? 'alert' : 'info', () => this.diplo.open(from));
     });
     const news = new NewsTicker(store, scenario);
-    root.append(this.topbar, this.mobileBar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
+    root.append(this.topbar, this.stockMenu, this.mobileBar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
 
     renderer.on('select', (id) => {
       if (this.targeting) { if (id) this.fireStrike(id); return; }
@@ -257,7 +262,7 @@ export class Hud {
         for (const e of newImportant(prev, s).slice(-3)) this.toast(e.text, e.nations?.includes(s.playerNation ?? '') ? 'alert' : 'info');
       }
       if (s.playerNation !== prev.playerNation) this.renderPlayer();
-      if (s.nations !== prev.nations || s.clock !== prev.clock || s.playerNation !== prev.playerNation) this.renderTreasury();
+      if (s.nations !== prev.nations || s.clock !== prev.clock || s.playerNation !== prev.playerNation) { this.renderTreasury(); this.renderStockMenu(); }
       if (this.selection?.kind === 'army' && !s.armies[this.selection.id]) this.select(null);
       else if (this.selection?.kind === 'armies' && this.selection.ids.some((id) => !s.armies[id])) this.selectArmies(this.selection.ids.filter((id) => s.armies[id]));
       else this.side.render(s, this.selection);
@@ -549,6 +554,52 @@ export class Hud {
     void this.withPause(() => openEconomy(this.store, { focus: (p) => { this.renderer.focusOn(p); this.select({ kind: 'province', id: p }); }, toast: (t) => this.toast(t, 'alert') }), true);
   }
 
+  private toggleStockMenu(open = this.stockMenu.style.display === 'none') {
+    this.stockMenu.style.display = open ? '' : 'none';
+    this.treasuryEl.classList.toggle('active', open);
+    if (open) {
+      // under the money button
+      const r = this.treasuryEl.getBoundingClientRect();
+      const left = Math.max(6, Math.min(r.left, window.innerWidth - 300));
+      this.stockMenu.style.left = `${left}px`;
+      this.stockMenu.style.top = `${r.bottom + 8}px`;
+      this.stockKey = '';
+      this.renderStockMenu();
+      audio.play('click');
+    }
+  }
+
+  private stockKey = '';
+  /** The dropdown's contents: refreshed when the money, stockpiles or the day change. */
+  private renderStockMenu() {
+    if (this.stockMenu.style.display === 'none') return;
+    const s = this.state;
+    const me = s.playerNation ? s.nations[s.playerNation] : null;
+    if (!me) return this.toggleStockMenu(false);
+    const world = this.store.world;
+    const key = `${Math.floor(s.clock.hours / 24)}|${me.treasury}|${JSON.stringify(me.stock)}|${s.treaties.length}`;
+    if (key === this.stockKey) return;
+    this.stockKey = key;
+    const net = budgetOf(s, world, me.id).net;
+    const flow = resourceFlow(s, world, me.id);
+    const change = (v: number) => h('span', { class: `stock-change ${v < 0 ? 'danger-text' : v > 0 ? 'ok-text' : 'dim'}` }, v ? `${v > 0 ? '+' : '−'}${Math.abs(v) % 1 ? Math.abs(v).toFixed(1) : Math.abs(v)}` : '±0');
+    const line = (icon: Node, name: string, have: string, per: number, title: string, warn = false) =>
+      h('div', { class: `stock-row${warn ? ' warn' : ''}`, title }, icon, h('span', { class: 'stock-name' }, name), h('strong', null, have), change(per));
+    const used = usedBy(world, me.units);
+    fill(this.stockMenu,
+      h('div', { class: 'stock-head' }, h('span', null, 'You have'), h('span', null, 'per month')),
+      line(h('span', { class: 'coin' }, '◈'), 'Money', String(Math.floor(me.treasury ?? 0)), Math.round(net * 10) / 10, 'Taxes minus upkeep, every month'),
+      ...Object.values(world.resources).map((r) => {
+        const have = me.stock?.[r.id] ?? 0;
+        const short = me.short?.includes(r.id) || (used.has(r.id) && have < 3);
+        const users = Object.entries(world.unitCosts).filter(([, bill]) => bill[r.id]).map(([u]) => world.unitTypes[u]?.name).filter(Boolean);
+        return line(swatch(r.color), r.name, `${Math.floor(have)}`, flow[r.id] ?? 0,
+          `${users.length ? `Used for: ${users.join(', ')}. ` : ''}Storage holds ${STOCK_CAP}; market price ${marketPrice(s, world, r.id).toFixed(1)}`, short);
+      }),
+      h('button', { class: 'btn stock-open', onclick: () => { this.toggleStockMenu(false); this.openTreasury(); } }, 'Treasury and market (T)'),
+    );
+  }
+
   /** Money in the top bar: refreshed daily (the budget is not free to compute). */
   private renderTreasury() {
     const s = this.state;
@@ -628,10 +679,11 @@ export class Hud {
     if (e.code === 'Space') { e.preventDefault(); this.loop.togglePause(); }
     else if (e.key === '1' || e.key === '2' || e.key === '3') this.loop.setSpeed(SPEEDS[Number(e.key) - 1] as Speed);
     else if (e.key === 'n' || e.key === 'N') this.skip();
+    else if (e.key === 'Escape' && this.stockMenu.style.display !== 'none') this.toggleStockMenu(false);
     else if (e.key === 'Escape') { if (this.targeting) this.endStrike(); else if (this.selection) this.select(null); else void this.openMenu(); }
     else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this.diplo.open(this.selectedNation() ?? undefined); }
     else if (e.key === 'l' || e.key === 'L') void this.withPause(() => openLedger(this.store), true);
-    else if (e.key === 't' || e.key === 'T') this.openTreasury();
+    else if (e.key === 't' || e.key === 'T') { this.toggleStockMenu(false); this.openTreasury(); }
     else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : this.mapMode === 'alliances' ? 'resources' : 'political');
     else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
