@@ -33,12 +33,14 @@ export interface ResourceDef {
   name: string;
   /** Map colour in the resources map mode. */
   color: string;
-  /** Unit types that need it: without it they cost half as much again (or, with stockpiles, cannot be supplied). */
+  /** Unit types that use it up every month (detailed economy): without it they cannot be supplied. */
   units?: string[];
-  /** Money a province holding it adds each month. */
-  value: number;
-  /** [lonMin, lonMax, latMin, latMax, chance]: where it is found. */
-  regions: [number, number, number, number, number][];
+  /** The building that extracts it at four times the natural rate. */
+  extract: 'mine' | 'farm' | 'factory';
+  /** Base price on the world market. */
+  price: number;
+  /** Where it is found: [lon, lat, radius in degrees]. */
+  deposits: [number, number, number][];
 }
 
 export interface StrikeDef {

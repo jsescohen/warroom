@@ -21,7 +21,6 @@ import { trackPlayStats } from './game/playStats';
 import { GameSession } from './game/session';
 import { formatDate } from './core/time';
 import { applyProvinceNames, buildWorldFromMap, loadMap, provinceMeta, type MapData } from './map/mapData';
-import { resourcesOf } from './data/resources';
 import type { World } from './core/world';
 import { MapRenderer } from './map/MapRenderer';
 import { h } from './ui/dom';
@@ -195,7 +194,7 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   }
   barLabel.textContent = 'Building the world…';
   const map = applyProvinceNames(rawMap, scenario.provinceNames);
-  const world = buildWorldFromMap(map, scenario.unitTypes, resourcesOf(scenario.era));
+  const world = buildWorldFromMap(map, scenario.unitTypes, scenario.era);
 
   if (saved && !fits(map)) {
     loading.replaceChildren(h('div', null, 'This save was made with a map this version of the game no longer has, so it cannot be loaded.', h('div', null, h('button', { class: 'btn', onclick: go.menu }, 'Main menu'))));

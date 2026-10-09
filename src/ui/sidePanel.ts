@@ -1,7 +1,8 @@
 import { mergeable } from '../core/actions';
 import { findPath, garrisonMax, garrisonOf, isFleet } from '../core/military';
 import { allied, armiesIn, atWar, enemiesOf, friendly, getRelation, provincesOf } from '../core/queries';
-import { BUILDINGS, budgetOf, buildError, needsOf, recruitableTypes, recruitCost, recruitError } from '../core/economy';
+import { BUILDINGS, budgetOf, buildError, buildingMaterials, developCost, developError, extractName, materialsOf, MAX_LEVEL, PRODUCE_EXTRACTED, provinceOutput, recruitableTypes, recruitCost, recruitError, recruitSite } from '../core/economy';
+import { launchError, weaponDef, type WeaponKind } from '../core/weapons';
 import { basePop, formatPop, nationPop, popOf } from '../core/population';
 import type { Army, BuildingId, GameState, NationId } from '../core/types';
 import type { World } from '../core/world';
@@ -40,7 +41,13 @@ export interface PanelActions {
   diplomacy(nation: NationId): void;
   recruit(province: string, unitType: string): void;
   build(province: string, building: BuildingId): void;
+  develop(province: string): void;
+  launch(weapon: WeaponKind, province: string): void;
 }
+
+/** "3 steel, 2 oil" */
+export const billText = (world: World, bill: Record<string, number>) =>
+  Object.entries(bill).map(([r, q]) => `${q} ${world.resources[r]?.name.toLowerCase() ?? r}`).join(', ');
 
 /**
  * Right-hand panel. Info is re-rendered on every state change; the action buttons are only
@@ -195,8 +202,16 @@ export class SidePanel {
     const pop = popOf(s, this.world, id), base = basePop(s, this.world, id);
     provRows.push(['Population', pop < base * 0.995 ? h('span', { class: 'danger-text', title: 'Civilians killed or fled in the fighting; they slowly return in peacetime' }, `${formatPop(pop)} (−${Math.round((1 - pop / base) * 100)}% from war)`) : formatPop(pop)]);
     const res = this.world.resources[this.world.provinces[id]?.resource ?? ''];
-    if (res) provRows.push(['Resource', h('span', { title: res.units?.length ? `Needed by: ${res.units.filter((u) => this.world.unitTypes[u]).map((u) => this.world.unitTypes[u].name).join(', ')}` : 'Sold for money' }, swatch(res.color), `${res.name} (+${res.value}/month)`)]);
-    if (prov.build?.length) provRows.push(['Buildings', prov.build.map((b) => BUILDINGS[b].name).join(', ')]);
+    if (res) {
+      const out = provinceOutput(s, this.world, id);
+      const extracted = prov.build?.includes(res.extract);
+      provRows.push(['Resource', h('span', { title: extracted ? `${extractName(this.world, id)} at work` : `Build ${extractName(this.world, id).toLowerCase()} here for ${PRODUCE_EXTRACTED} a month` },
+        swatch(res.color), `${res.name} · ${out}/month${extracted ? '' : ' (not extracted)'}`)]);
+    }
+    if (prov.level) provRows.push(['Development', `Level ${prov.level} of ${MAX_LEVEL}`]);
+    if ((prov.falloutUntil ?? 0) > s.clock.hours) provRows.push(['Fallout', h('span', { class: 'danger-text' }, `Poisoned for ${Math.ceil((prov.falloutUntil! - s.clock.hours) / 24)} more days`)]);
+    if (prov.build?.length) provRows.push(['Buildings', prov.build.map((b) => (b === res?.extract ? extractName(this.world, id) : BUILDINGS[b].name)).join(', ')]);
+    if (player && owner.id === player && prov.build?.some((b) => b === 'barracks' || b === 'airfield')) provRows.push(['Recruiting', recruitSite(s, this.world, id).label]);
     if (prov.siege) provRows.push(['Under siege', `${s.nations[prov.siege.by].shortName} — ${prov.siege.progress > 0 || g <= 0.05 ? `${Math.round(prov.siege.progress * 100)}%` : 'fighting the garrison'}`]);
 
     const here = armiesIn(s, id);
@@ -241,24 +256,45 @@ export class SidePanel {
     if (player && owner.id === player) {
       for (const u of recruitableTypes(this.world)) {
         const def = this.world.unitTypes[u];
-        const needs = needsOf(this.world, u).map((r) => this.world.resources[r]?.name ?? r);
         const where = def.strike ? 'airfield' : 'barracks';
         if (!prov.build?.includes(where)) continue;
-        econ.push({ label: `${def.name} · ${recruitCost(s, this.world, player, u)}`, err: recruitError(s, this.world, player, id, u),
-          title: `Recruit a new ${def.name.toLowerCase()} here (attack ${def.attack}, defence ${def.defense}). It starts at ${Math.round(40)}% strength and trains up.${needs.length ? ` Needs ${needs.join(' and ')}: without it, it costs more.` : ''}`,
+        const mats = billText(this.world, materialsOf(this.world, u));
+        econ.push({ label: `${def.name} · ${recruitCost(s, this.world, player, u, undefined, id)}${mats ? ` + ${mats}` : ''}`, err: recruitError(s, this.world, player, id, u),
+          title: `Recruit a new ${def.name.toLowerCase()} here (attack ${def.attack}, defence ${def.defense}). It starts at ${Math.round(recruitSite(s, this.world, id).start * 100)}% strength and trains up.`,
           run: () => this.act.recruit(id, u) });
       }
       for (const b of Object.keys(BUILDINGS) as BuildingId[]) {
         if (prov.build?.includes(b)) continue;
         const err = buildError(s, this.world, player, id, b);
-        if (err && /no aircraft/.test(err)) continue;
-        econ.push({ label: `Build ${BUILDINGS[b].name.toLowerCase()} · ${BUILDINGS[b].cost}`, err, title: BUILDINGS[b].text, run: () => this.act.build(id, b) });
+        // only offer what can exist here (the right extraction building for its resource)
+        if (err && /no aircraft|no air defence|nothing here to extract|needs a /.test(err)) continue;
+        const name = b === res?.extract ? extractName(this.world, id) : BUILDINGS[b].name;
+        const mats = billText(this.world, buildingMaterials(this.world, b));
+        econ.push({ label: `Build ${name.toLowerCase()} · ${BUILDINGS[b].cost}${mats ? ` + ${mats}` : ''}`, err, title: BUILDINGS[b].text, run: () => this.act.build(id, b) });
+      }
+      if ((prov.level ?? 0) < MAX_LEVEL) {
+        const c = developCost(s, this.world, id);
+        econ.push({ label: `Develop to level ${(prov.level ?? 0) + 1} · ${c.gold} + ${billText(this.world, c.materials)}`, err: developError(s, this.world, player, id),
+          title: 'More people and taxes, a stronger garrison, and better recruiting here', run: () => this.act.develop(id) });
       }
     }
-    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}`;
+    // missiles and nuclear weapons against enemy provinces
+    const strikes: HTMLElement[] = [];
+    if (player && owner.id !== player && atWar(s, player, owner.id)) {
+      for (const w of ['missile', 'nuke'] as const) {
+        const def = weaponDef(this.world, w);
+        const have = s.nations[player].arsenal?.[w] ?? 0;
+        if (!def || !have) continue;
+        const err = launchError(s, this.world, player, w, id);
+        strikes.push(h('button', { class: 'btn danger', disabled: !!err, title: err ?? (w === 'nuke' ? 'Destroys every army here, kills most of its people and poisons it for a year. The whole world will turn against you.' : `Hits every enemy unit here (and the garrison); air defence may shoot it down`),
+          onclick: () => this.act.launch(w, id) }, `${w === 'nuke' ? '☢ ' : ''}Launch ${def.name.toLowerCase()} (${have})`));
+      }
+    }
+    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}|${strikes.map((b) => b.textContent + (b as HTMLButtonElement).disabled).join(',')}`;
     this.setActions(key, [
-      ...(econ.length ? [h('div', { class: 'side-subhead' }, 'Recruit and build')] : []),
+      ...(econ.length ? [h('div', { class: 'side-subhead' }, 'Recruit, build and develop')] : []),
       ...econ.map((e) => h('button', { class: 'btn econ-btn', disabled: !!e.err, title: e.err ?? e.title, onclick: e.run }, e.label)),
+      ...strikes,
       !player ? h('button', { class: 'btn primary', title: 'Play as this nation for the rest of the game', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
       player && player !== owner.id ? h('button', { class: 'btn', title: 'Open a conversation with their leader: talk, propose deals (D)', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,
       canDeclare ? h('button', { class: 'btn danger', title: 'Start a war: their allies may join them, and any treaty with them is broken', onclick: () => this.act.declareWar(owner.id) }, `Declare war on ${owner.shortName}`) : null,

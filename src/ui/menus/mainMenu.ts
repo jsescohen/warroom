@@ -9,6 +9,9 @@ import { openHowToPlay } from './howToPlay';
 import { openProfile } from './profile';
 import { openLoadScreen, timeAgo } from './loadScreen';
 import { openSettings } from './settingsScreen';
+import { openWhatsNew, whatsNewOnce } from './whatsNew';
+import { CHANGELOG, LATEST_VERSION } from '../../data/changelog';
+import { getSettings } from '../settings';
 
 export interface MainMenuActions {
   newGame(): void;
@@ -45,6 +48,7 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
   items.push(['Load game', 'Your saved campaigns', () => void openLoadScreen(actions.load)]);
   if (currentUser()) items.push(['Multiplayer', 'Play online: public rooms or with friends', actions.multiplayer]);
   items.push(['How to play', 'Armies, economy, diplomacy', () => void openHowToPlay()]);
+  items.push(["What's new", `Version ${LATEST_VERSION}: ${CHANGELOG[0].title}`, () => void openWhatsNew()]);
   items.push(['Settings', 'Gameplay, sound, display', () => void openSettings()]);
   if (currentUser()) items.push(['Profile', 'Your stats and achievements', () => void openProfile()]);
   if (currentUser()) items.push(['Feedback', 'Report a bug or suggest an idea', () => void openFeedback()]);
@@ -63,4 +67,6 @@ export async function showMainMenu(root: HTMLElement, actions: MainMenuActions) 
       h('div', { class: 'cx-legal' }, h('a', { href: '/privacy.html' }, 'Privacy'), h('a', { href: '/terms.html' }, 'Terms')),
     ),
   ));
+  // after an update: what is new and how to use it (a brand-new player gets the tutorial instead)
+  whatsNewOnce(!getSettings().tutorialDone);
 }

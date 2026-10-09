@@ -2,10 +2,10 @@ import type { TimeConfig } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import type { GameEvent, GameState } from '../core/types';
 
-export type Speed = 0 | 1 | 2 | 4;
+export type Speed = 0 | 1 | 2 | 3;
 /** When the game pauses itself: never, on important events involving the player, or on any important event. */
 export type AutoPause = 'off' | 'mine' | 'all';
-export const SPEEDS: Speed[] = [1, 2, 4];
+export const SPEEDS: Speed[] = [1, 2, 3];
 
 export interface SkipResult {
   turns: number;

@@ -2,8 +2,9 @@ import { applyAgreement, PROPOSAL_DAYS, ULTIMATUM_GRACE_HOURS, validateTerms } f
 import { addGrievance, addNote, addRelation, log, logEvent } from './events';
 import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
+import { applyArm, applyLaunch, armError, launchError, type WeaponKind } from './weapons';
 import { formatShortDate } from './time';
-import { applyBuild, applyRecruit, buildError, initStocks, recruitError } from './economy';
+import { applyBuild, applyDevelop, applyMarket, applyRecruit, buildError, developError, initStocks, marketError, recruitError } from './economy';
 import { DIFFICULTIES, relationKey, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
@@ -21,6 +22,14 @@ export type Action =
   /** Buy a new unit at a barracks (land) or airfield (air). */
   | { type: 'recruit'; province: ProvinceId; unitType: string }
   | { type: 'build'; province: ProvinceId; building: BuildingId }
+  /** Develop a province one level (money and materials). */
+  | { type: 'develop'; province: ProvinceId }
+  /** World market: buy (amount > 0) or sell (amount < 0) a resource. */
+  | { type: 'market'; resource: string; amount: number }
+  /** Build a missile or nuclear weapon into the arsenal. */
+  | { type: 'arm'; weapon: WeaponKind }
+  /** Fire one at a province. */
+  | { type: 'launch'; weapon: WeaponKind; target: ProvinceId }
   | { type: 'tick' }
   | { type: 'declareWar'; attacker: NationId; defender: NationId }
   | { type: 'moveArmy'; army: ArmyId; to: ProvinceId }
@@ -61,6 +70,16 @@ export const mergeable = (s: GameState, army: ArmyId) => {
   );
 };
 
+/**
+ * Hours until armies may merge in a province: newly taken land needs time to organise (ten days,
+ * or four turns in eras counted in weeks).
+ */
+export function mergeCooldown(s: GameState, province: ProvinceId): number {
+  const taken = s.provinces[province]?.takenAt;
+  if (taken === undefined) return 0;
+  return Math.max(0, taken + Math.max(240, 4 * s.clock.turnHours) - s.clock.hours);
+}
+
 /** Returns an error message if the command is not allowed, otherwise null. */
 export function validate(state: GameState, { action, actor }: Command, world: World): string | null {
   const ownArmy = (id: ArmyId) => {
@@ -84,6 +103,14 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       return actor === 'system' ? 'Only a nation can recruit' : recruitError(state, world, actor, action.province, action.unitType);
     case 'build':
       return actor === 'system' ? 'Only a nation can build' : buildError(state, world, actor, action.province, action.building);
+    case 'develop':
+      return actor === 'system' ? 'Only a nation can develop land' : developError(state, world, actor, action.province);
+    case 'market':
+      return actor === 'system' ? 'Only a nation can trade' : marketError(state, world, actor, action.resource, action.amount);
+    case 'arm':
+      return actor === 'system' || (action.weapon !== 'missile' && action.weapon !== 'nuke') ? 'Not allowed' : armError(state, world, actor, action.weapon);
+    case 'launch':
+      return actor === 'system' || (action.weapon !== 'missile' && action.weapon !== 'nuke') ? 'Not allowed' : launchError(state, world, actor, action.weapon, action.target);
     case 'tick':
       return actor === 'system' ? null : 'Only the simulation advances time';
     case 'declareWar': {
@@ -123,6 +150,8 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
     case 'mergeArmies': {
       const err = ownArmy(action.army);
       if (err) return err;
+      const wait = mergeCooldown(state, state.armies[action.army].location);
+      if (wait > 0) return `Troops cannot reorganise in newly taken land yet: ${wait >= 48 ? `${Math.ceil(wait / 24)} days` : `${Math.ceil(wait)} hours`} to go`;
       return mergeable(state, action.army).length ? null : 'No idle army of the same type here to merge with';
     }
     case 'transferProvince':
@@ -204,6 +233,18 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
 
     case 'build':
       return applyBuild(state, world, actor, action.province, action.building);
+
+    case 'develop':
+      return applyDevelop(state, world, actor, action.province);
+
+    case 'market':
+      return applyMarket(state, world, actor, action.resource, action.amount);
+
+    case 'arm':
+      return applyArm(state, world, actor, action.weapon);
+
+    case 'launch':
+      return applyLaunch(state, world, actor, action.weapon, action.target, log);
 
     case 'tick':
       return simulateTick(state, world, (s, c) => (validate(s, c, world) ? s : reduce(s, c, world)), log);

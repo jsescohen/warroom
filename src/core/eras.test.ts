@@ -1,4 +1,3 @@
-import { resourcesOf } from '../data/resources';
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { scenarios } from '../data/scenarios';
@@ -8,7 +7,7 @@ import { createInitialState } from './state';
 
 describe.each(scenarios.map((s) => [s.id, s] as const))('era %s', (_, sc) => {
   const map = applyProvinceNames(parseMap(sc.id, JSON.parse(fs.readFileSync('public' + sc.map, 'utf8'))), sc.provinceNames);
-  const world = buildWorldFromMap(map, sc.unitTypes, resourcesOf(sc.era));
+  const world = buildWorldFromMap(map, sc.unitTypes, sc.era);
   const start = createInitialState(sc, map.id, map.provinces.map((p) => ({ ...provinceMeta(p), pop: p.pop })), world);
 
   it('gives every province to a living nation with a capital', () => {

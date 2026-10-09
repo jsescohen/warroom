@@ -4,6 +4,7 @@ import type { UnitTypeDef } from './scenario';
 import { aiEdge, humansOf, isHuman, type Army, type ArmyId, type GameEvent, type GameState, type Nation, type NationId, type ProvinceId, type ProvinceState } from './types';
 import type { Link, World } from './world';
 import { applyCivilianLosses, popRatio } from './population';
+import { airDefenseAt } from './weapons';
 
 // ---- tuning -----------------------------------------------------------------------------------
 const DAMAGE_PER_DAY = 0.12; // fraction of (strength x attack) inflicted per day of battle
@@ -79,7 +80,12 @@ export function homelandOf(s: GameState, world: World, n: NationId, include: (p:
  */
 export function effectiveSize(s: GameState, world: World, n: NationId, owned: ProvinceId[]): number {
   const home = s.nations[n]?.capital ? homelandOf(s, world, n) : null;
-  return owned.reduce((x, p) => x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p) * (0.4 + 0.6 * popRatio(s, world, p)), 0);
+  return owned.reduce((x, p) => {
+    const ps = s.provinces[p];
+    // developed land yields more; land poisoned by a nuclear strike almost nothing
+    const dev = (1 + 0.3 * (ps?.level ?? 0)) * ((ps?.falloutUntil ?? 0) > s.clock.hours ? 0.1 : 1);
+    return x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p) * (0.4 + 0.6 * popRatio(s, world, p)) * dev;
+  }, 0);
 }
 
 /**
@@ -140,7 +146,7 @@ export function garrisonMax(s: GameState, p: ProvinceId): number {
   const home = ps.core === ps.owner ? 2 : 0.7;
   // a great power's capital is a fortress; a small state's much less so
   const capital = n.capital === p ? Math.min(8, 3 + Math.sqrt(coreCount(s, n.id)) * 0.6) : 0;
-  const fort = ps.build?.includes('fort') ? 1.5 : 1;
+  const fort = (ps.build?.includes('fort') ? 1.5 : 1) * (1 + 0.25 * (ps.level ?? 0));
   return Math.round((home * Math.sqrt(Math.max(0.3, n.military)) + capital) * fort * 10) / 10;
 }
 
@@ -285,7 +291,7 @@ export function findPath(s: GameState, world: World, owner: NationId, unitType: 
 export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: (s: GameState, ev: Omit<GameEvent, 'id' | 'at'>) => GameState, world?: World): GameState {
   const from = s.provinces[province].owner;
   if (from === to) return s;
-  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0, ...(s.provinces[province].pop !== undefined ? { pop: s.provinces[province].pop } : {}), ...(s.provinces[province].build ? { build: s.provinces[province].build } : {}) } };
+  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0, takenAt: s.clock.hours, ...(s.provinces[province].pop !== undefined ? { pop: s.provinces[province].pop } : {}), ...(s.provinces[province].build ? { build: s.provinces[province].build } : {}) } };
   let next: GameState = { ...s, provinces };
   const loser = s.nations[from];
   const remaining = Object.keys(provinces).filter((id) => provinces[id].owner === from);
@@ -648,7 +654,9 @@ export function applyStrike(state: GameState, world: World, fleetId: ArmyId, tar
   const strike = world.unitTypes[a.unitType]!.strike!;
   const [r, rng] = nextRandom(state.rng);
   let s: GameState = { ...state, rng };
-  const total = strike.power * (a.strength / a.maxStrength) * (s.nations[a.owner]?.quality ?? 1) * (0.8 + r * 0.4);
+  // air defence over the target blunts the strike
+  const shield = airDefenseAt(s, world, target, a.owner) ? 1 - (world.weapons?.airDefense.strikeReduction ?? 0) : 1;
+  const total = strike.power * (a.strength / a.maxStrength) * (s.nations[a.owner]?.quality ?? 1) * (0.8 + r * 0.4) * shield;
   const units = strikeTargets(s, a.owner, target);
   const garrison = atWar(s, a.owner, s.provinces[target].owner) ? garrisonOf(s, target) : 0;
   const pool = units.reduce((x, u) => x + u.strength, 0) + garrison;

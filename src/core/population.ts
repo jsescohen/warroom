@@ -16,7 +16,7 @@ export function eraScale(s: GameState): number {
 
 /** Peacetime population of a province. */
 export const basePop = (s: GameState, world: World, p: ProvinceId) =>
-  Math.round(((world.provinces[p]?.pop ?? 0) * 1.4 + 40_000) * eraScale(s));
+  Math.round(((world.provinces[p]?.pop ?? 0) * 1.4 + 40_000) * eraScale(s) * (1 + 0.25 * (s.provinces[p]?.level ?? 0)));
 
 export const popOf = (s: GameState, world: World, p: ProvinceId) => s.provinces[p]?.pop ?? basePop(s, world, p);
 

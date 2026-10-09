@@ -1,7 +1,8 @@
 import type { Command } from './actions';
 import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplomacy';
 import { addRelation, getRel } from './events';
-import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, needsOf, producedBy, manpowerCap, recruitCost, recruitError, supportedArmies, upkeepOf } from './economy';
+import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, producedBy, manpowerCap, recruitCost, recruitError, recruitSite, supportedArmies, upkeepOf, basicUnit, buildError, developError, marketQuote, materialsOf, usedBy } from './economy';
+import { launchError } from './weapons';
 import { BASE_STRENGTH, fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
 import { nextRandom } from './rng';
@@ -460,8 +461,9 @@ function strategize(state: GameState, world: World, n: NationId, apply: Apply, d
 
 /**
  * Weekly: keep the army at the size the nation supports (the AI plays by the player's rules: it
- * pays for every unit), recruiting next to the front; with money to spare, build barracks,
- * airfields and forts; and buy resources its troops lack.
+ * pays for every unit, in money and materials), buying missing materials on the market; put mines,
+ * farms and factories on its deposits; develop its best cities; build air defence and weapons and
+ * use them; and buy resources its army is built from but it lacks.
  */
 function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, day: number): GameState {
   let s = state;
@@ -473,6 +475,33 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
   // a rich treasury raises extra armies, up to the nation's manpower
   const target = (me.treasury ?? 0) > 150 ? manpowerCap(s, world, n) : Math.round(supportedArmies(s, world, n) * difficultyMult(s, n));
   const toFront = (p: ProvinceId) => (front.length ? Math.min(...front.map((f) => dist(world, p, f))) : dist(world, p, me.capital!));
+  const treasury = () => s.nations[n].treasury ?? 0;
+  const run = (action: Parameters<Apply>[1]['action']) => {
+    const before = s;
+    s = apply(s, { action, actor: n });
+    return s !== before;
+  };
+  /** Buys what a bill lacks on the market, if that leaves the money for the rest. */
+  const buyFor = (bill: Record<string, number>, reserve: number) => {
+    for (const [r, q] of Object.entries(bill)) {
+      const lack = Math.ceil(q - (s.nations[n].stock?.[r] ?? 0));
+      if (lack <= 0) continue;
+      if (treasury() - marketQuote(s, world, r, lack) < reserve) return false;
+      if (!run({ type: 'market', resource: r, amount: lack })) return false;
+    }
+    return true;
+  };
+
+  // 0) work an untapped deposit first: a mine or farm pays for itself within months
+  {
+    const used0 = usedBy(world, s.nations[n].units);
+    const untapped = owned.filter((p) => {
+      const r = world.resources[world.provinces[p].resource ?? ''];
+      return r && !s.provinces[p].build?.includes(r.extract) && !s.provinces[p].siege;
+    }).sort((x, y) => Number(used0.has(world.provinces[y].resource!)) - Number(used0.has(world.provinces[x].resource!)) || (x < y ? -1 : 1))[0];
+    const r = untapped ? world.resources[world.provinces[untapped].resource!] : null;
+    if (untapped && r && treasury() >= 25 && !buildError(s, world, n, untapped, r.extract)) run({ type: 'build', province: untapped, building: r.extract });
+  }
 
   // 1) recruit: up to two units a week while under strength and the money lasts
   for (let k = 0; k < 2 && armyCount(s, world, n) < target; k++) {
@@ -480,51 +509,70 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
     const b = budgetOf(s, world, n);
     const counter = s.armyCounters[n] ?? 0;
     const wanted = nation.units[counter % nation.units.length];
-    const base = nation.units.find((u) => !isAirUnit(world, u) && !needsOf(world, u).length) ?? nation.units[0];
+    const base = basicUnit(world);
     let placed = false;
     for (const unit of [...new Set([wanted, base])]) {
       const kind: BuildingId = isAirUnit(world, unit) ? 'airfield' : 'barracks';
-      const sites = owned.filter((p) => s.provinces[p].build?.includes(kind)).sort((a, c) => toFront(a) - toFront(c) || (a < c ? -1 : 1));
-      const site = sites.find((p) => !recruitError(s, world, n, p, unit));
-      if (!site) continue;
+      // near the front, but a good site (capital, big city) is worth a longer march
+      const siteScore = (p: ProvinceId) => toFront(p) * (1.4 - recruitSite(s, world, p).start);
+      const sites = owned.filter((p) => s.provinces[p].build?.includes(kind)).sort((x, y) => siteScore(x) - siteScore(y) || (x < y ? -1 : 1));
       // keep a running budget: the new unit's upkeep must be affordable, or the treasury must carry
       // the deficit for half a year
       const cost = recruitCost(s, world, n, unit);
       const net = b.net - upkeepOf(s, world, { owner: n, unitType: unit, maxStrength: BASE_STRENGTH } as Army);
-      if (net < 0 && (nation.treasury ?? 0) - cost < -net * 6) break;
-      s = apply(s, { action: { type: 'recruit', province: site, unitType: unit }, actor: n });
-      placed = true;
-      break;
+      if (net < 0 && treasury() - cost < -net * 6) break;
+      let site = sites.find((p) => !recruitError(s, world, n, p, unit));
+      // short of materials: buy them, if the treasury can spare it
+      if (!site && sites.some((p) => /^Needs \d/.test(recruitError(s, world, n, p, unit) ?? '')) && buyFor(materialsOf(world, unit), cost + 10))
+        site = sites.find((p) => !recruitError(s, world, n, p, unit));
+      if (!site) continue;
+      placed = run({ type: 'recruit', province: site, unitType: unit });
+      if (placed) break;
     }
     if (!placed) break;
   }
 
-  // 2) build with what is left over (one building a week, keeping a reserve for recruits)
+  // 2) build with what is left over (one thing a week, keeping a reserve for recruits)
   const nation = s.nations[n];
   const has = (b: BuildingId) => owned.filter((p) => s.provinces[p].build?.includes(b));
-  const spare = (nation.treasury ?? 0) - 30;
-  const home = owned.filter((p) => s.provinces[p].core === n).sort((a, c) => world.provinces[c].pop - world.provinces[a].pop || (a < c ? -1 : 1));
-  const tryBuild = (p: ProvinceId | undefined, b: BuildingId) => {
-    if (!p || spare < BUILDINGS[b].cost) return false;
-    const before = s;
-    s = apply(s, { action: { type: 'build', province: p, building: b }, actor: n });
-    return s !== before;
-  };
+  const spare = treasury() - 30;
+  const home = owned.filter((p) => s.provinces[p].core === n).sort((x, y) => world.provinces[y].pop - world.provinces[x].pop || (x < y ? -1 : 1));
+  const lacks = (b: BuildingId) => (p: ProvinceId) => !s.provinces[p].build?.includes(b);
+  const tryBuild = (p: ProvinceId | undefined, b: BuildingId) => !!p && spare >= BUILDINGS[b].cost && !buildError(s, world, n, p, b) && run({ type: 'build', province: p, building: b });
+  // what the army is made of, and deposits not yet worked (those it needs first)
+  const used = usedBy(world, nation.units);
+  const deposit = owned.filter((p) => {
+    const r = world.resources[world.provinces[p].resource ?? ''];
+    return r && lacks(r.extract)(p) && !s.provinces[p].siege;
+  }).sort((x, y) => Number(used.has(world.provinces[y].resource!)) - Number(used.has(world.provinces[x].resource!)) || (x < y ? -1 : 1))[0];
+  const enemyStrikes = enemies.some((e) => s.nations[e].units.some((u) => isAirUnit(world, u)) || (s.nations[e].arsenal?.missile ?? 0) > 0);
   if (armyCount(s, world, n) >= target || spare > 80) {
-    const lacks = (b: BuildingId) => (p: ProvinceId) => !s.provinces[p].build?.includes(b);
+    const extract = deposit ? world.resources[world.provinces[deposit].resource!].extract : null;
     if (has('barracks').length < 1 + Math.floor(target / 8)) tryBuild(home.find(lacks('barracks')), 'barracks');
+    else if (deposit && extract && tryBuild(deposit, extract)) { /* a mine, farm or factory */ }
     else if (eraHasAir(world) && nation.units.some((u) => isAirUnit(world, u)) && has('airfield').length < 1 + Math.floor(target / 16)) tryBuild(home.find(lacks('airfield')), 'airfield');
+    else if (world.weapons && enemyStrikes && !s.provinces[me.capital].build?.includes('airdefense') && spare > 60) tryBuild(me.capital, 'airdefense');
     else if (!s.provinces[me.capital].build?.includes('fort') && spare > 60) tryBuild(me.capital, 'fort');
-    else if (has('fort').length < 4 && spare > 120) tryBuild([...front].sort((a, c) => world.provinces[c].pop - world.provinces[a].pop || (a < c ? -1 : 1)).find(lacks('fort')), 'fort');
+    else if (spare > 100) {
+      // develop the capital and the big cities, one level at a time
+      const dev = [me.capital, ...home].find((p) => !developError(s, world, n, p));
+      if (dev) run({ type: 'develop', province: dev });
+      else if (has('fort').length < 4 && spare > 120) tryBuild([...front].sort((x, y) => world.provinces[y].pop - world.provinces[x].pop || (x < y ? -1 : 1)).find(lacks('fort')), 'fort');
+    }
   }
 
-  // 3) once a month, buy a resource the troops need and the nation lacks
-  // (only worth it with a few units that need it, and money to pay)
+  // 3) weapons: missiles at war; nuclear weapons only for aggressive great powers
+  if (world.weapons && enemies.length) {
+    if ((s.nations[n].arsenal?.missile ?? 0) < 4 && treasury() > 90) run({ type: 'arm', weapon: 'missile' });
+    if (me.major && me.aggression >= 0.5 && (s.nations[n].arsenal?.nuke ?? 0) < 2 && treasury() > 700) run({ type: 'arm', weapon: 'nuke' });
+    s = fireWeapons(s, world, n, apply, enemies);
+  }
+
+  // 4) once a month, buy a resource the army is built from but the nation neither has nor makes
   if (Math.floor(day / 7) % 4 === 0 && budgetOf(s, world, n).net > 6) {
+    const produced = producedBy(s, world, n);
     const access = accessOf(s, world, n);
-    const users = new Map<string, number>();
-    for (const a of Object.values(s.armies)) if (a.owner === n) for (const r of needsOf(world, a.unitType)) users.set(r, (users.get(r) ?? 0) + 1);
-    const want = [...users.keys()].filter((r) => (users.get(r) ?? 0) >= 3 && (!access.has(r) || s.nations[n].short?.includes(r))).sort()[0];
+    const want = [...used].filter((r) => !produced.has(r) && !access.has(r) && (s.nations[n].stock?.[r] ?? 0) < 20).sort()[0];
     if (want) {
       const sellers = Object.keys(s.nations).filter((x) => x !== n && !isHuman(s, x) && s.nations[x].alive && !atWar(s, n, x) && getRel(s, n, x) >= -10 && producedBy(s, world, x).has(want)).sort();
       for (const x of sellers.slice(0, 6)) {
@@ -533,6 +581,35 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
         s = sign(s, apply, terms);
         break;
       }
+    }
+  }
+  return s;
+}
+
+/**
+ * Missiles at the biggest enemy force within range (an offensive gathering, an army at the gates).
+ * A nuclear weapon only in desperation: the capital is under attack or most of the homeland is lost.
+ */
+function fireWeapons(state: GameState, world: World, n: NationId, apply: Apply, enemies: NationId[]): GameState {
+  let s = state;
+  const isEnemy = new Set(enemies);
+  const stacks = new Map<ProvinceId, number>();
+  for (const a of Object.values(s.armies)) if (isEnemy.has(a.owner) && a.progress === 0) stacks.set(a.location, (stacks.get(a.location) ?? 0) + a.strength);
+  const targets = [...stacks].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1));
+  if ((s.nations[n].arsenal?.missile ?? 0) > 0) {
+    const t = targets.find(([p, str]) => str >= 8 && !launchError(s, world, n, 'missile', p));
+    if (t) s = apply(s, { action: { type: 'launch', weapon: 'missile', target: t[0] }, actor: n });
+  }
+  if ((s.nations[n].arsenal?.nuke ?? 0) > 0) {
+    const cap = s.nations[n].capital;
+    let total = 0, held = 0;
+    for (const ps of Object.values(s.provinces)) if (ps.core === n) { total++; if (ps.owner === n) held++; }
+    const nearCap = cap ? targets.filter(([p]) => p === cap || world.provinces[cap].links.some((l) => l.to === p)) : [];
+    const desperate = nearCap.some(([, str]) => str >= 15) || (total > 0 && held / total < 0.5);
+    if (desperate) {
+      // never on its own capital; the biggest enemy force near the capital, else the biggest anywhere
+      const t = [...nearCap, ...targets].find(([p, str]) => p !== cap && str >= 15 && !launchError(s, world, n, 'nuke', p));
+      if (t) s = apply(s, { action: { type: 'launch', weapon: 'nuke', target: t[0] }, actor: n });
     }
   }
   return s;

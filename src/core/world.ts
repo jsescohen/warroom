@@ -32,6 +32,12 @@ export interface World {
   unitTypes: Record<string, UnitTypeDef>;
   /** The era's resources by id. */
   resources: Record<string, ResourceDef>;
+  /** Materials each unit type costs to raise. */
+  unitCosts: Record<string, Record<string, number>>;
+  /** Materials to develop a province one level. */
+  developCost: Record<string, number>;
+  /** Missiles, nukes and air defence (null in eras without them). */
+  weapons: WeaponsConfig | null;
   /** Fraction of land speed when moving over a sea lane. */
   seaSpeed: number;
 }
@@ -62,24 +68,61 @@ export function roll(id: string, key: string): number {
   return (h >>> 0) / 4294967296;
 }
 
-/** The resource a province holds: the first of the era's resources whose region roll succeeds. */
-export function resourceAt(id: string, lonlat: [number, number] | undefined, resources: ResourceDef[]): string | undefined {
-  if (!lonlat) return undefined;
-  const [lon, lat] = lonlat;
+/**
+ * Puts the era's resources on the map: every province whose centre lies within a deposit's radius
+ * holds it; a deposit no province centre reaches goes to the nearest province. One resource per
+ * province (the first listed wins).
+ */
+export function placeResources(input: { id: ProvinceId; lonlat?: [number, number] }[], resources: ResourceDef[]): Map<ProvinceId, string> {
+  const out = new Map<ProvinceId, string>();
+  const located = input.filter((p) => p.lonlat);
+  const d = (p: { lonlat?: [number, number] }, lon: number, lat: number) => {
+    const [x, y] = p.lonlat!;
+    const dx = (((x - lon + 540) % 360) - 180) * Math.cos(((y + lat) / 2) * (Math.PI / 180));
+    return Math.hypot(dx, y - lat);
+  };
   for (const r of resources) {
-    const chance = Math.max(0, ...r.regions.filter(([x0, x1, y0, y1]) => lon >= x0 && lon <= x1 && lat >= y0 && lat <= y1).map((g) => g[4]));
-    if (chance > 0 && roll(id, r.id) < chance) return r.id;
+    for (const [lon, lat, radius] of r.deposits) {
+      const inside = located.filter((p) => d(p, lon, lat) <= radius);
+      const hits = inside.length ? inside : located.filter((p) => d(p, lon, lat) <= radius * 2.5).sort((a, b) => d(a, lon, lat) - d(b, lon, lat)).slice(0, 1);
+      for (const p of hits) if (!out.has(p.id)) out.set(p.id, r.id);
+    }
   }
-  return undefined;
+  return out;
 }
 
-export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[], seaSpeed = 0.5, resources: ResourceDef[] = []): World {
+/** Missiles, nuclear weapons and air defence of an era (null in eras without them). */
+export interface WeaponDef {
+  name: string;
+  /** Money to build one. */
+  cost: number;
+  materials: Record<string, number>;
+  /** Map units from the nearest province of the launching nation. */
+  range: number;
+  /** ISO date it first becomes available (default: from the start). */
+  from?: string;
+}
+export interface WeaponsConfig {
+  missile: (WeaponDef & { damage: number }) | null;
+  nuke: WeaponDef | null;
+  airDefense: { name: string; materials: Record<string, number>; missileIntercept: number; nukeIntercept: number; strikeReduction: number; radius: number };
+}
+
+/** What raising units and developing provinces costs in materials (per era), and its weapons. */
+export interface WorldEconomy {
+  unitCosts: Record<string, Record<string, number>>;
+  developCost: Record<string, number>;
+  weapons?: WeaponsConfig | null;
+}
+
+export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[], seaSpeed = 0.5, resources: ResourceDef[] = [], economy: WorldEconomy = { unitCosts: {}, developCost: {} }): World {
+  const placed = placeResources(input, resources);
   const provinces: Record<ProvinceId, WorldProvince> = {};
   const byId = new Map(input.map((p) => [p.id, p]));
   const dist = (a: WorldProvinceInput, b: WorldProvinceInput) => Math.hypot(a.label[0] - b.label[0], a.label[1] - b.label[1]);
   for (const p of input) {
     provinces[p.id] = {
-      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0, resource: resourceAt(p.id, p.lonlat, resources),
+      id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0, resource: placed.get(p.id),
       links: p.neighbors.filter((n) => byId.has(n)).map((n) => ({ to: n, dist: round1(dist(p, byId.get(n)!)), sea: false })),
     };
   }
@@ -171,6 +214,9 @@ export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[]
     order: input.map((p) => p.id),
     unitTypes: Object.fromEntries(unitTypes.map((u) => [u.id, u])),
     resources: Object.fromEntries(resources.map((r) => [r.id, r])),
+    unitCosts: economy.unitCosts,
+    developCost: economy.developCost,
+    weapons: economy.weapons ?? null,
     seaSpeed,
   };
 }

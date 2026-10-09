@@ -640,3 +640,17 @@ body.targeting canvas { cursor: crosshair !important; }
 .mp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); display: inline-block; flex: none; }
 .mp-dot.on { background: #4caf6a; box-shadow: 0 0 6px #4caf6a; }
 .chip.player-chip { margin-left: 6px; font-size: 10px; padding: 0 5px; }
+
+/* treasury: market table */
+.mk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mk-qty { display: flex; align-items: center; gap: 4px; }
+.mk-qty .btn.small { margin-left: 0; }
+.data-table.market td.mk-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.data-table.market .btn.small { margin-left: 0; }
+.warn-text { color: var(--accent); }
+.small { font-size: 11.5px; }
+
+.howto-replay { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.wn-release { border-top: 1px solid var(--panel-border); padding: 10px 0; }
+.wn-release summary { cursor: pointer; font-size: 15px; }
+.wn-release .howto-list { margin-top: 8px; }

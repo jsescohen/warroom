@@ -25,6 +25,14 @@ export const treatyName = (t: Treaty['type']) =>
  */
 export function leaveTreaty(state: GameState, nation: NationId, treaty: Treaty, reason: string): GameState {
   const name = (id: NationId) => state.nations[id]?.shortName ?? id;
+  // ending a trade agreement is business, not betrayal
+  if (treaty.type === 'trade') {
+    let s: GameState = { ...state, treaties: state.treaties.filter((t) => t.id !== treaty.id) };
+    for (const p of treaty.parties) if (p !== nation) s = addRelation(s, nation, p, -5);
+    return logEvent(s, 'treaty-ended', `${name(nation)} ends its trade agreement with ${treaty.parties.filter((p) => p !== nation).map(name).join(', ')}.`, {
+      nations: treaty.parties, important: treaty.parties.some((p) => isHuman(s, p)),
+    });
+  }
   let s: GameState = {
     ...state,
     treaties: state.treaties.flatMap((t) => {
@@ -38,10 +46,41 @@ export function leaveTreaty(state: GameState, nation: NationId, treaty: Treaty, 
     s = addRelation(s, nation, p, -30);
     s = addGrievance(s, p, nation, `${formatShortDate(s.clock)}: broke its ${treatyName(treaty.type)} with us${reason ? ` (${reason})` : ''}.`);
   }
-  return logEvent(s, 'treaty-broken', `${name(nation)} tears up its ${treatyName(treaty.type)} with ${others.map(name).join(', ')}.`, {
+  s = logEvent(s, 'treaty-broken', `${name(nation)} tears up its ${treatyName(treaty.type)} with ${others.map(name).join(', ')}.`, {
     nations: treaty.parties,
     important: treaty.parties.some((p) => isHuman(s, p)),
   });
+  return lostTrust(s, nation);
+}
+
+/** Relation at or under which an ally walks away from a nation that has just broken a treaty. */
+export const TRUST_THRESHOLD = 50;
+
+/**
+ * A nation that breaks its word loses allies who never trusted it much: every alliance in which
+ * a partner's relation with it is TRUST_THRESHOLD or less ends for it (in a larger alliance the
+ * others stay allied with each other).
+ */
+export function lostTrust(state: GameState, nation: NationId): GameState {
+  let s = state;
+  const name = (id: NationId) => s.nations[id]?.shortName ?? id;
+  for (const t of s.treaties.filter((x) => x.type === 'alliance' && x.parties.includes(nation))) {
+    const doubters = t.parties.filter((p) => p !== nation && getRel(s, p, nation) <= TRUST_THRESHOLD);
+    if (!doubters.length) continue;
+    s = {
+      ...s,
+      treaties: s.treaties.flatMap((x) => {
+        if (x.id !== t.id) return [x];
+        const parties = x.parties.filter((p) => p !== nation);
+        return parties.length >= 2 ? [{ ...x, parties }] : [];
+      }),
+    };
+    for (const p of doubters) s = addGrievance(s, p, nation, `${formatShortDate(s.clock)}: broke a treaty, so we no longer trust it as an ally.`);
+    s = logEvent(s, 'alliance-lost', `${doubters.map(name).join(', ')} no longer trust${doubters.length === 1 ? 's' : ''} ${name(nation)}: the alliance is over.`, {
+      nations: [nation, ...doubters], important: isHuman(s, nation) || doubters.some((p) => isHuman(s, p)),
+    });
+  }
+  return s;
 }
 
 export function declareWar(state: GameState, attacker: NationId, defender: NationId): GameState {

@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { allied, atWar, friendly, getRelation } from '../core/queries';
 import type { GameState, NationId } from '../core/types';
-import { lighten, mix, type Theme } from '../ui/themes';
+import { hexToNum, lighten, mix, type Theme } from '../ui/themes';
 import type { World } from '../core/world';
 import { ArmyLayer } from './ArmyLayer';
 import { Camera } from './camera';
@@ -50,6 +50,9 @@ export class MapRenderer {
   private coast = new Graphics();
   private overlay = new Graphics();
   private capitalLayer = new Container();
+  /** Resources map mode: a marker on every deposit (ringed white when it is worked). */
+  private resourceLayer = new Graphics();
+  private resourceKey = '';
   private nationLabelLayer = new Container();
   private provinceLabelLayer = new Container();
 
@@ -117,8 +120,9 @@ export class MapRenderer {
     this.app.stage.addChild(this.world);
     this.world.addChild(
       this.graticule, this.shore, this.shadow, this.land, this.fills, this.provinceBorders, this.coast, this.nationBorders,
-      this.overlay, this.capitalLayer, this.nationLabelLayer, this.provinceLabelLayer,
+      this.overlay, this.capitalLayer, this.resourceLayer, this.nationLabelLayer, this.provinceLabelLayer,
     );
+    this.resourceLayer.visible = false;
     this.armies = new ArmyLayer(this.sim, this.theme, this.camera);
     this.world.addChild(this.armies.container);
 
@@ -172,10 +176,28 @@ export class MapRenderer {
     if (this.mapMode === 'resources') { this.map.provinces.forEach((_, i) => this.applyTint(i)); this.needsRender = true; }
   }
 
+  /** Deposits to mark in the resources map mode: [province id, colour, worked by a mine/farm/factory]. */
+  setResourceMarks(marks: [string, string, boolean][]) {
+    const key = marks.map((m) => m[0] + (m[2] ? '+' : '')).join(',');
+    if (key === this.resourceKey) return;
+    this.resourceKey = key;
+    const g = this.resourceLayer;
+    g.clear();
+    for (const [id, color, worked] of marks) {
+      const p = this.map.byId.get(id);
+      if (!p) continue;
+      const [x, y] = p.label;
+      g.circle(x, y + 7, 3.4).fill({ color: hexToNum(color) });
+      g.circle(x, y + 7, 3.4).stroke({ width: worked ? 1.6 : 0.8, color: worked ? 0xffffff : 0x000000, alpha: worked ? 1 : 0.55 });
+    }
+    this.needsRender = true;
+  }
+
   /** Recolours every province for a map mode. */
   setMapMode(mode: MapMode) {
     if (mode === this.mapMode) return;
     this.mapMode = mode;
+    this.resourceLayer.visible = mode === 'resources';
     this.map.provinces.forEach((_, i) => this.applyTint(i));
     this.needsRender = true;
   }

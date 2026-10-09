@@ -44,9 +44,13 @@ export interface Nation {
   short?: string[];
   /** Civilians of this nation killed in sieges, battles and strikes. */
   civDeaths?: number;
+  /** Missiles and nuclear weapons built and not yet used. */
+  arsenal?: { missile?: number; nuke?: number };
+  /** Clock hour the last nuclear weapon was built (they take a while). */
+  nukeBuiltAt?: number;
 }
 
-export type BuildingId = 'barracks' | 'airfield' | 'fort';
+export type BuildingId = 'barracks' | 'airfield' | 'fort' | 'mine' | 'farm' | 'factory' | 'airdefense';
 
 export interface ProvinceState {
   owner: NationId;
@@ -58,6 +62,12 @@ export interface ProvinceState {
   garrison?: number;
   /** People living there. Missing = its peacetime population (see basePop). */
   pop?: number;
+  /** Clock hour the province last changed hands (armies there cannot merge for a while). */
+  takenAt?: number;
+  /** Development level 0..3 (more money, people and defence). Missing = 0. */
+  level?: number;
+  /** Struck by a nuclear weapon: produces and recruits nothing until this clock hour. */
+  falloutUntil?: number;
   /** Buildings: barracks and airfields recruit troops, forts strengthen the garrison. */
   build?: BuildingId[];
 }
@@ -243,6 +253,8 @@ export interface GameState {
     /** 'detailed' adds resource stockpiles, consumption and shortages. Missing = simple. */
     economy?: EconomyMode;
   };
+  /** World market: how far buying (+) and selling (-) have pushed each resource's price. */
+  market?: Record<string, number>;
   /** Weekly territory and strength of the great powers, for the ledger (see core/history.ts). */
   history?: History;
   winner: NationId | null;

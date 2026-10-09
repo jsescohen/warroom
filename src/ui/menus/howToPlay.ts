@@ -1,5 +1,6 @@
 import { fill, h } from '../dom';
 import { openPanel } from './shell';
+import { updateSettings } from '../settings';
 
 type Section = { id: string; label: string; intro?: string; items: [string, string][] };
 
@@ -35,6 +36,7 @@ const SECTIONS: Section[] = [
       ['Garrisons', 'Every province has its own defenders (see "Garrison" in the province panel). Your army must beat them first: the province panel and the army’s status show how much is left.'],
       ['Occupation', 'Once the garrison is beaten, a circle fills on the province: when it is full, the province is yours. Bigger armies take it faster.'],
       ['Moving on', 'An army cannot march past an enemy province without taking it first.'],
+      ['Merging', 'Armies cannot merge in a province you have just taken: the new land needs ten days (four turns in the ancient eras) to organise.'],
       ['Capitals', 'Capitals are strongly garrisoned. If yours falls, the government flees to another city and fights on, unless the game was started with "Capital falls = nation falls": then the whole nation surrenders.'],
       ['Population', 'Big cities take longer to occupy than empty land. Sieges, battles and strikes kill civilians; a province that loses people earns less and slowly recovers in peacetime.'],
       ['Surrender', 'A nation capitulates when it holds a quarter of its land or less, or 40% with enemy troops inside its capital. What it still holds goes to the winner.'],
@@ -43,16 +45,30 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'economy', label: 'Economy',
-    intro: 'Your land and people earn money every month; armies cost money to raise and to keep. Click the treasury (◈) in the top bar, or press T, for the full budget.',
+    intro: 'Your land and people earn money every month; armies cost money and materials to raise, and money to keep. Click the treasury (◈) in the top bar, or press T, for your budget, stockpiles and the world market.',
     items: [
-      ['Income', 'Paid at the start of each month: taxes from your land (more for populous provinces), plus resources sold. Distant colonies bring in less.'],
+      ['Income', 'Paid at the start of each month: taxes from your land and people. Developed and populous provinces pay more; distant colonies less.'],
       ['Upkeep', 'Every army costs money each month, stronger units more. If the treasury runs dry, unpaid troops desert.'],
-      ['Recruiting', 'Select a province with barracks and pick a unit; air units need an airfield. You can field only so many armies (manpower): it grows with the land and people you hold.'],
-      ['Buildings', 'Build barracks closer to the front so new troops arrive faster, airfields for aircraft, and fortresses to make a province’s garrison half as strong again. Buildings change hands with the province.'],
-      ['Resources', 'Some provinces produce oil, steel, horses, spices and more (Resources map mode, M). Some units need a resource: without it they cost half as much again to recruit and a quarter more to keep.'],
-      ['Trade', 'Buy a resource you lack, or sell one you have, with a trade agreement in Diplomacy. Money can change hands every month. Trade stops if you go to war with each other.'],
-      ['Detailed economy', 'Chosen when you pick your nation. Resources pile up in stockpiles; armies use them up and recruiting takes some. Run out, and those units fight at three quarters strength and cannot refit.'],
-      ['The AI', 'Computer nations play by the same rules: they pay for every army, build, and trade for what they lack.'],
+      ['Recruiting', 'Select a province with barracks (an airfield for aircraft) and pick a unit. The capital trains best (troops start at 70% strength, 15% cheaper), big cities well, towns at 40%; small provinces raise only basic troops until developed.'],
+      ['Materials', 'Most units cost materials too: steel, oil and rubber for tanks, horses for cavalry, iron for legions… Basic infantry only needs food. The cost shows on each recruit button.'],
+      ['Resources', 'Some provinces hold a resource, where it really was found (Resources map mode, M). By itself a province makes 1 a month; build its mine, oil wells, farm or factory to make 4.'],
+      ['Stockpiles', 'Each resource is stored up to 80. What you make beyond that is sold on the world market at the end of the month.'],
+      ['World market', 'Treasury → buy what you lack, sell what you have. Prices go up as everyone buys and down as they sell, then drift back. Selling pays 80% of the price.'],
+      ['Trade agreements', 'In Diplomacy: another nation supplies a resource (3 a month), for money or a resource in return. They end if you go to war with each other.'],
+      ['Developing land', 'Select a province and press Develop: three levels, each costing money and materials. More people and taxes, a stronger garrison, and better recruiting.'],
+      ['Buildings', 'Barracks and airfields recruit; a fortress makes the garrison half as strong again; mines, farms and factories work resources; air defence protects against missiles and air strikes.'],
+      ['Detailed economy', 'Chosen with your nation. Armies also use up their resources every month; run out, and those units fight at three quarters strength and cannot refit.'],
+      ['The AI', 'Computer nations play by the same rules: they pay for every army, work their mines, trade, use the market and build weapons.'],
+    ],
+  },
+  {
+    id: 'weapons', label: 'Weapons',
+    intro: 'In World War II (V-2 rockets from mid-1944, the atomic bomb from 1945) and in the present day.',
+    items: [
+      ['Building them', 'Treasury → Weapons: missiles and nuclear weapons cost money and materials (nuclear weapons need uranium, and take two months between each).'],
+      ['Firing', 'Select an enemy province within range and press Launch. A missile damages every enemy unit there and its garrison.'],
+      ['Nuclear weapons', 'Destroy every army in the province, kill most of its people, and poison it for a year: it makes and recruits nothing. Every nation in the world turns against whoever uses one.'],
+      ['Air defence', 'A building (flak, Iron Dome, SAM). It covers its province and the land around it: it shoots down many missiles, a few nuclear weapons, and blunts air and drone strikes.'],
     ],
   },
   {
@@ -70,6 +86,7 @@ const SECTIONS: Section[] = [
     items: [
       ['Talk', 'Press Diplomacy (D) or "Talk to …" on a country. Write anything; leaders answer in character and remember the conversation.'],
       ['Deals', 'Propose alliances, non-aggression pacts, ceasefires, peace, land swaps, joint wars or trade agreements. Nothing is agreed until the other side formally accepts the offer card.'],
+      ['Trust', 'Break a treaty and your allies who think little of you (relations 50 or less) leave the alliance too. Ending a trade agreement is not a betrayal.'],
       ['Relations', 'War, broken treaties and ultimatums are remembered for a long time. Friendly nations accept more; enemies may refuse even to talk.'],
       ['Declaring war', 'Use "Declare war" on a country, or just drag an army onto it: you will be asked to confirm. Breaking a treaty to do it angers the nation you betray.'],
       ['The advisor', 'Before big decisions your advisor estimates the odds and the risks. Choose how often in Settings → Gameplay.'],
@@ -94,7 +111,7 @@ const SECTIONS: Section[] = [
       ['Mouse', 'Drag the map to pan, scroll to zoom. Click a province or counter to inspect it.'],
       ['Touch', 'Drag to pan, pinch to zoom. Tap a counter, then tap where it should go (or drag the counter there). Press and hold a counter to add it to a group. The ☰ button holds settings, help and saves.'],
       ['Space', 'Pause / resume'],
-      ['1 · 2 · 3', 'Game speed'],
+      ['1 · 2 · 3', 'Game speed (1× is 15 seconds a day in the modern eras)'],
       ['N', 'Skip to the next important event'],
       ['D', 'Diplomacy'],
       ['T', 'Treasury'],
@@ -121,6 +138,9 @@ export function openHowToPlay(start = 'start') {
     fill(content,
       sec.intro ? h('p', { class: 'howto-intro' }, sec.intro) : null,
       h('dl', { class: 'howto-list' }, ...sec.items.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)])),
+      sec.id === 'start' ? h('div', { class: 'howto-replay' },
+        h('button', { class: 'btn', onclick: (e: Event) => { updateSettings({ tutorialDone: false }); (e.target as HTMLButtonElement).textContent = 'The tutorial will start in your next new game'; } }, 'Replay the tutorial'),
+        h('span', { class: 'dim small' }, 'It shows by itself only in your very first game.')) : null,
     );
     content.scrollTop = 0;
   };

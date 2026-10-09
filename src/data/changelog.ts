@@ -1,0 +1,67 @@
+/**
+ * Release notes, newest first. The newest entry is shown once to every player after an update
+ * (see ui/menus/whatsNew.ts); all of them are under "What's new" on the main menu. Each item says
+ * what is new and how to use it.
+ */
+export interface Release {
+  version: string;
+  date: string;
+  title: string;
+  items: { title: string; how: string }[];
+}
+
+export const CHANGELOG: Release[] = [
+  {
+    version: '0.7',
+    date: '2026-10-09',
+    title: 'Resources, the world market and weapons',
+    items: [
+      { title: 'Real resources, where they really were', how: 'Oil at Baku, Ploiești and Maracaibo; steel in the Ruhr and the Donbas; silver at Potosí; uranium in the Congo and Canada. Press M until the map shows Resources: every deposit has a marker, ringed white when it is being worked.' },
+      { title: 'Mines, farms and factories', how: 'A province with a resource makes 1 a month. Select it and build its mine, oil wells, farm or factory to make 4 a month.' },
+      { title: 'Troops cost materials', how: 'Tanks, artillery, aircraft, cavalry and legions need steel, oil, horses, iron… as well as money. The cost shows on each recruit button; the Treasury (T) shows your stockpiles.' },
+      { title: 'The world market', how: 'Open the Treasury (T): buy what you lack and sell what you have. Prices rise when everyone buys and fall when everyone sells. A full storage (80) sells its surplus by itself at the end of the month.' },
+      { title: 'Develop provinces', how: 'Select one of your provinces and press Develop (three levels, money and materials): more people and taxes, a stronger garrison, and better recruiting there.' },
+      { title: 'Recruiting depends on the place', how: 'The capital trains troops best (70% strength, 15% cheaper), big cities well; small provinces raise only basic infantry until developed.' },
+      { title: 'Missiles, nuclear weapons, air defence', how: 'In World War II (V-2 from mid-1944, the atomic bomb from 1945) and today: build them in the Treasury, fire them from an enemy province’s panel. Air defence, a building, shoots some down and blunts air strikes. A nuclear strike destroys everything in a province and turns the whole world against you.' },
+      { title: 'Uranium', how: 'A new resource in World War II, today and the United States: nuclear weapons need it.' },
+      { title: 'Trust', how: 'Break a treaty and your allies who think little of you (relations 50 or less) leave the alliance too. Ending a trade agreement is not a betrayal.' },
+      { title: 'Slower, calmer clock', how: 'Normal speed is now 15 seconds per day in the modern eras (the ancient eras slowed down alike); the speeds are 1×, 2× and 3×.' },
+      { title: 'Merging takes time in new land', how: 'Armies cannot merge in a province you have just taken (ten days, or four turns in the ancient eras).' },
+      { title: 'The tutorial', how: 'It shows by itself only in your very first game. Replay it any time from How to play.' },
+    ],
+  },
+  {
+    version: '0.6',
+    date: '2026-10-08',
+    title: 'Multiplayer',
+    items: [
+      { title: 'Play online', how: 'Main menu → Multiplayer. Public rooms are listed for everyone (up to 16 players); private rooms are joined with their six-letter code or invite link.' },
+      { title: 'Steady clock', how: 'Time runs for everyone at the room’s pace; only the host of a private room can pause.' },
+      { title: 'Talk to players', how: 'Nations led by people are marked “Player” in Diplomacy: messages go straight to them.' },
+    ],
+  },
+  {
+    version: '0.5',
+    date: '2026-10-08',
+    title: 'Pangea',
+    items: [{ title: 'A new era', how: 'Today’s nations on one supercontinent, fighting with spears, swords, bows and horses. New game → Pangea.' }],
+  },
+  {
+    version: '0.4',
+    date: '2026-10-08',
+    title: 'Phones and tablets',
+    items: [{ title: 'Play on your phone', how: 'Tap a counter, then where it should go; pinch to zoom; press and hold a counter to group it. Add the site to your home screen to play it like an app.' }],
+  },
+  {
+    version: '0.3',
+    date: '2026-10-08',
+    title: 'The economy',
+    items: [
+      { title: 'Money and recruiting', how: 'Click the treasury (◈) for your budget. Armies are bought at barracks (aircraft at airfields) and cost upkeep every month.' },
+      { title: 'Population', how: 'Sieges and battles kill civilians; populous provinces take longer to capture.' },
+      { title: 'New game options', how: 'When you pick your nation: Simple or Detailed economy, and “Capital falls = nation falls”.' },
+    ],
+  },
+];
+
+export const LATEST_VERSION = CHANGELOG[0].version;

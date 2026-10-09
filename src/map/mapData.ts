@@ -1,5 +1,8 @@
 import { feature } from 'topojson-client';
-import type { ProvinceMeta, ResourceDef, UnitTypeDef } from '../core/scenario';
+import type { ProvinceMeta, UnitTypeDef } from '../core/scenario';
+import type { EraId } from '../core/types';
+import { DEVELOP_COST, resourcesOf, unitCostsOf } from '../data/resources';
+import { weaponsOf } from '../data/weapons';
 import { apiFetch } from '../auth/account';
 import { buildWorld, type World } from '../core/world';
 
@@ -170,8 +173,9 @@ function seaShoreTest(land: number[][][]): (coords: number[]) => boolean {
 }
 
 /** Static simulation context for a scenario on this map. */
-export const buildWorldFromMap = (map: MapData, unitTypes: UnitTypeDef[], resources: ResourceDef[] = []): World =>
-  buildWorld(map.provinces.map((p) => ({ id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop, lonlat: p.lonlat, neighbors: p.neighbors })), unitTypes, 0.5, resources);
+export const buildWorldFromMap = (map: MapData, unitTypes: UnitTypeDef[], era?: EraId): World =>
+  buildWorld(map.provinces.map((p) => ({ id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop, lonlat: p.lonlat, neighbors: p.neighbors })), unitTypes, 0.5,
+    era ? resourcesOf(era) : [], { unitCosts: era ? unitCostsOf(era) : {}, developCost: era ? DEVELOP_COST[era] ?? {} : {}, weapons: era ? weaponsOf(era) : null });
 
 /** Renames provinces to their period names (Paris → Lutetia). Returns the same map, mutated. */
 export function applyProvinceNames(map: MapData, names: Record<string, string> | undefined): MapData {

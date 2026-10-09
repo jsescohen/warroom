@@ -19,6 +19,8 @@ import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
 import { openEconomy } from './economyPanel';
 import type { OnlineHud } from '../net/onlineGame';
+import type { WeaponKind } from '../core/weapons';
+import { confirmDialog } from './modal';
 import { budgetOf } from '../core/economy';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
 import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
@@ -97,6 +99,8 @@ export class Hud {
       diplomacy: (nation) => this.diplo.open(nation),
       recruit: (province, unitType) => { if (this.dispatch({ type: 'recruit', province, unitType })) audio.play('order'); },
       build: (province, building) => { if (this.dispatch({ type: 'build', province, building })) audio.play('order'); },
+      develop: (province) => { if (this.dispatch({ type: 'develop', province })) audio.play('order'); },
+      launch: (weapon, target) => void this.launch(weapon, target),
     });
     const modes = h('div', { class: 'map-modes panel', role: 'radiogroup', 'aria-label': 'Map mode' });
     const renderModes = () => fill(modes,
@@ -106,9 +110,16 @@ export class Hud {
         .map(([k, l]) => h('span', null, h('i', { style: `background:${ALIGNMENT_COLORS[k]}` }), l))) : null,
       this.mapMode === 'relations' ? h('div', { class: 'map-legend gradient' }, h('span', null, 'Hostile'), h('i', null), h('span', null, 'Friendly')) : null,
       this.mapMode === 'resources' ? h('div', { class: 'map-legend' }, ...Object.values(store.world.resources)
-        .map((r) => h('span', null, h('i', { style: `background:${r.color}` }), r.name))) : null,
+        .map((r) => h('span', null, h('i', { style: `background:${r.color}` }), r.name)),
+        h('span', { class: 'dim', title: 'A white ring marks a deposit worked by a mine, farm or factory (four times the output)' }, '◯ = worked')) : null,
     );
     renderer.setResourceColors(map.provinces.map((p) => store.world.resources[store.world.provinces[p.id]?.resource ?? '']?.color ?? null));
+    const marks = () => renderer.setResourceMarks(map.provinces.flatMap((p) => {
+      const r = store.world.resources[store.world.provinces[p.id]?.resource ?? ''];
+      return r ? [[p.id, r.color, !!store.state.provinces[p.id]?.build?.includes(r.extract)] as [string, string, boolean]] : [];
+    }));
+    marks();
+    store.subscribe((s, prev) => { if (s.provinces !== prev.provinces && this.mapMode === 'resources') marks(); });
     this.renderModes = renderModes;
     renderModes();
     const zoom = h('div', { class: 'zoom-controls panel' },
@@ -299,8 +310,25 @@ export class Hud {
     if (m !== 'political' && m !== 'resources' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
     this.mapMode = m;
     this.renderer.setMapMode(m);
+    if (m === 'resources') this.renderModes();
     this.renderModes();
     audio.play('click');
+  }
+
+  // ---- missiles and nuclear weapons ----------------------------------------------------------------
+
+  private async launch(weapon: WeaponKind, target: string) {
+    if (weapon === 'nuke') {
+      const where = this.store.world.provinces[target]?.name ?? target;
+      const ok = await confirmDialog({
+        title: `Nuclear strike on ${where}?`,
+        body: ['Every army in the province is destroyed and most of its people die; it produces nothing for a year. Every nation in the world will turn against you, and its friends may come for you.'],
+        confirmLabel: 'Launch',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    if (this.dispatch({ type: 'launch', weapon, target })) audio.play(weapon === 'nuke' ? 'capital' : 'order');
   }
 
   // ---- strikes ------------------------------------------------------------------------------------
@@ -518,7 +546,7 @@ export class Hud {
 
   private openTreasury() {
     if (!this.state.playerNation) return;
-    void this.withPause(() => openEconomy(this.store, { focus: (p) => { this.renderer.focusOn(p); this.select({ kind: 'province', id: p }); } }), true);
+    void this.withPause(() => openEconomy(this.store, { focus: (p) => { this.renderer.focusOn(p); this.select({ kind: 'province', id: p }); }, toast: (t) => this.toast(t, 'alert') }), true);
   }
 
   /** Money in the top bar: refreshed daily (the budget is not free to compute). */

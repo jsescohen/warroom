@@ -1,5 +1,5 @@
 import { addGrievance, addRelation, getRel, logEvent, log } from './events';
-import { accessOf, needsOf, producedBy } from './economy';
+import { accessOf, needsOf, producedBy, usedBy } from './economy';
 import { setOwner } from './military';
 import { allied, atWar, friendly, provincesOf } from './queries';
 import { formatShortDate } from './time';
@@ -265,7 +265,7 @@ export function willingness(s: GameState, world: World, t: ProposalTerms, respon
       const gives = responder === t.to ? t.buy : t.sell;
       const giver = responder === t.to ? t.from : t.to;
       const access = accessOf(s, world, responder);
-      const needed = new Set(Object.values(s.armies).filter((a) => a.owner === responder).flatMap((a) => needsOf(world, a.unitType)));
+      const needed = new Set([...Object.values(s.armies).filter((a) => a.owner === responder).flatMap((a) => needsOf(world, a.unitType)), ...usedBy(world, s.nations[responder]?.units ?? [])]);
       if (gets) {
         const real = producedBy(s, world, giver).has(gets);
         const v = !real ? 0 : access.has(gets) ? 2 : needed.has(gets) ? 35 : 12;
