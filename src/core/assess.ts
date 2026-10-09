@@ -1,6 +1,6 @@
 import type { Action } from './actions';
 import { militaryPower, willingness } from './diplomacy';
-import { findPath, garrisonMax, garrisonOf, garrisonPower, isFleet, seaPower } from './military';
+import { findPath, forecastAssault, garrisonMax, garrisonOf, garrisonPower, isFleet, seaPower } from './military';
 import { allied, atWar, friendly, getRelation } from './queries';
 import type { GameState, NationId, ProvinceId } from './types';
 import { treatyName } from './war';
@@ -28,6 +28,10 @@ export interface MajorAction {
   province?: ProvinceId;
   /** Short human description: "Declare war on France", "Naval invasion of Kent". */
   label: string;
+  /** Attacks: every army taking part (a group order); default the ordered army alone. */
+  armies?: string[];
+  /** Attacks: the last step into the province is over the sea. */
+  landing?: boolean;
 }
 
 export interface Estimate {
@@ -95,7 +99,7 @@ export function classifyMajor(s: GameState, world: World, action: Action, actor:
     const sea = world.provinces[prev].links.find((l) => l.to === p)?.sea ?? false;
     prev = p;
     if (!atWar(s, actor, owner)) continue;
-    const base = { action, actor, target: owner, province: p };
+    const base = { action, actor, target: owner, province: p, landing: sea };
     if (s.nations[owner]?.capital === p) return { ...base, kind: 'attackCapital', label: `Assault on ${name(p)}, capital of ${s.nations[owner].shortName}` };
     if (sea) return { ...base, kind: 'navalInvasion', label: `Naval invasion of ${name(p)} (${s.nations[owner].shortName})` };
     const presence = Object.values(s.armies).some((a) => a.owner === actor && s.provinces[a.location].owner === owner);
@@ -125,6 +129,8 @@ export function estimate(s: GameState, world: World, m: MajorAction): Estimate {
   let likelyEnemies: NationId[] = [];
   let ours: number;
   let theirs: number;
+  /** Attacks: the share of the played-out battles we win. */
+  let forecast: number | null = null;
 
   if (m.kind === 'declareWar' || m.kind === 'jointWar') {
     // who fights on the target's side: alliance partners, plus close friends who already dislike us
@@ -158,24 +164,31 @@ export function estimate(s: GameState, world: World, m: MajorAction): Estimate {
     notes.push(border ? 'We share a land border.' : 'No land border: any invasion must cross the sea or allied territory.');
     if (!border) ours *= 0.75;
   } else {
-    // local battle: our forces converging vs defenders in and around the target province
+    // local battle: only the armies given the order attack; the defenders, the garrison and the
+    // enemy armies next door (who may come to help) are played out with the real battle rules
     const p = m.province!;
     const near = new Set([p, ...world.provinces[p].links.map((l) => l.to)]);
-    const army = s.armies[(m.action as { army: string }).army];
     const land = (a: { unitType: string }) => !isFleet(world, a.unitType);
-    const ourArmies = Object.values(s.armies).filter((a) => land(a) && a.owner === m.actor && (a.id === army?.id || (near.has(a.location) && a.progress === 0)));
+    const ids = m.armies ?? [(m.action as { army: string }).army];
+    const ourArmies = ids.map((id) => s.armies[id]).filter((a) => a && land(a));
     const theirArmies = Object.values(s.armies).filter((a) => land(a) && atWar(s, m.actor, a.owner) && near.has(a.location));
-    const pw = (list: typeof ourArmies, defending: boolean) => list.reduce((x, a) => {
-      const u = world.unitTypes[a.unitType];
-      const inPlace = a.location === p ? 1 : 0.5;
-      return x + a.strength * (defending ? u?.defense ?? 3 : u?.attack ?? 3) * inPlace;
-    }, 0);
-    ours = pw(ourArmies, false);
-    const garrison = garrisonPower(s, p);
-    theirs = pw(theirArmies, true) * 1.2 * (s.nations[m.target]?.capital === p ? 1.25 : 1) + garrison;
+    const home = (s.rules.homeDefense ?? 1.2) * (s.nations[m.target]?.capital === p ? 1.25 : 1);
+    ours = ourArmies.reduce((x, a) => x + a.strength * (s.nations[a.owner]?.quality ?? 1) * (world.unitTypes[a.unitType]?.attack ?? 3), 0);
+    theirs = theirArmies.reduce((x, a) => x + a.strength * (s.nations[a.owner]?.quality ?? 1) * (world.unitTypes[a.unitType]?.defense ?? 3) * (a.location === p ? home : 0.5), 0) + garrisonPower(s, p);
+    // odds: the battle under worse and better luck, with none, some or most of the neighbours joining
+    let chance = 0, days = 0;
+    for (const [reinforce, rw] of [[0, 0.5], [0.4, 0.35], [0.9, 0.15]] as const) {
+      for (const [luck, lw] of [[0.8, 0.1], [0.9, 0.2], [1, 0.4], [1.1, 0.2], [1.2, 0.1]] as const) {
+        const f = forecastAssault(s, world, ourArmies, p, { reinforce, luck, landing: !!m.landing });
+        if (f.won) chance += rw * lw;
+        if (reinforce === 0.4 && luck === 1) days = f.won ? f.days : 0;
+      }
+    }
+    forecast = chance;
+    if (days) notes.push(`If it goes as expected, ${world.provinces[p].name} falls in about ${Math.max(1, Math.round(days))} day${Math.round(days) === 1 ? '' : 's'}.`);
+    else notes.push('Even with ordinary luck the attack is likely to stall or be thrown back.');
     if (m.kind === 'navalInvasion') {
-      ours *= 0.8;
-      notes.push('Amphibious landing: troops arrive slowly over sea lanes.');
+      notes.push('Amphibious landing: troops fight weaker for two days after coming ashore.');
       const { own, enemy } = seaPower(s, world, m.actor, p);
       if (enemy > 0) notes.push(enemy > own * 1.2 ? 'Enemy fleets control these waters: the crossing will be blocked or the convoy sunk.' : 'Enemy fleets are near, but ours hold the sea.');
     }
@@ -184,7 +197,7 @@ export function estimate(s: GameState, world: World, m: MajorAction): Estimate {
     if (theirs === 0) notes.push('The province appears undefended.');
   }
 
-  const successChance = Math.round(Math.max(3, Math.min(97, 100 * ours ** 1.5 / (ours ** 1.5 + theirs ** 1.5 || 1))));
+  const successChance = Math.round(Math.max(3, Math.min(97, forecast !== null ? forecast * 100 : 100 * ours ** 1.5 / (ours ** 1.5 + theirs ** 1.5 || 1))));
   const majorJoiners = likelyEnemies.filter((n) => s.nations[n].major).length;
   const score = ((100 - successChance) / 100) * 2.2 + likelyEnemies.length * 0.25 + majorJoiners * 0.8 + brokenTreaties.length * 0.8;
   const risk: RiskLevel = score < 0.9 ? 'Low' : score < 1.7 ? 'Medium' : score < 2.8 ? 'High' : 'Extreme';

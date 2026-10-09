@@ -6,6 +6,7 @@ import { provincesOf } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import type { MapRenderer } from '../map/MapRenderer';
+import type { OnlineHud } from '../net/onlineGame';
 import { fill, h, swatch } from './dom';
 import { outbreakSites, SEVERITIES, SEVERITY } from '../core/pandemic';
 import type { Severity } from '../core/types';
@@ -53,14 +54,17 @@ export class NationPicker {
   private previewed: string | null = null;
   private collapsed = false;
 
-  constructor(private store: GameStore, private scenario: ScenarioDef, private renderer: MapRenderer) {
+  constructor(private store: GameStore, private scenario: ScenarioDef, private renderer: MapRenderer, private online: OnlineHud | null = null) {
     store.subscribe((s, prev) => { if (s.playerNation !== prev.playerNation) this.render(); });
+    // online: other players' choices arrive with the room
+    online?.onChange(() => this.render());
     this.render();
   }
 
   private render() {
     const s = this.store.state;
     if (s.playerNation) { this.el.remove(); return; }
+    const taken = this.online?.taken() ?? new Map<string, string>();
     const playable = this.scenario.nations.filter((n) => n.playable && s.nations[n.id]?.alive);
     if (this.collapsed) {
       fill(this.el, h('button', { class: 'btn primary', onclick: () => { this.collapsed = false; this.render(); } }, 'Choose your nation…'));
@@ -81,14 +85,15 @@ export class NationPicker {
             active ? h('div', { class: 'pick-goals' }, `Goals: ${leader.goals.join('; ')}`) : null,
           ),
         ),
-        active ? h('button', { class: 'btn primary', onclick: () => this.choose(n.id) }, `Lead ${nation.shortName}`) : null,
+        taken.has(n.id) ? h('span', { class: 'dim small' }, `Led by ${taken.get(n.id)}`)
+          : active ? h('button', { class: 'btn primary', onclick: () => this.choose(n.id) }, `Lead ${nation.shortName}`) : null,
       );
     });
     fill(this.el,
       h('div', { class: 'picker-head' },
         h('div', null, h('div', { class: 'eyebrow' }, this.scenario.subtitle), h('h2', null, 'Choose your nation')),
         h('button', { class: 'menu-x', title: 'Hide this list and browse the map', onclick: () => { this.collapsed = true; this.render(); } }, '–')),
-      h('div', { class: 'picker-difficulty' }, h('span', null, 'Difficulty'),
+      ...(this.online ? [h('p', { class: 'setting-hint' }, 'Online game: the room sets the rules. Nations nobody picks stay with the AI.')] : [h('div', { class: 'picker-difficulty' }, h('span', null, 'Difficulty'),
         segmented(getSettings().difficulty, [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], (v) => { updateSettings({ difficulty: v }); this.render(); })),
       h('p', { class: 'setting-hint' }, DIFFICULTY_HINT[getSettings().difficulty]),
       h('div', { class: 'picker-difficulty' }, h('span', null, 'Economy'),
@@ -96,7 +101,7 @@ export class NationPicker {
       h('p', { class: 'setting-hint' }, ECONOMY_HINT[getSettings().economy]),
       this.scenario.pandemic ? null : h('div', { class: 'picker-difficulty' }, h('span', { title: 'When a nation loses its capital it surrenders at once, with all its land' }, 'Capital falls = nation falls'),
         toggle(getSettings().capitalFalls, (v) => { updateSettings({ capitalFalls: v }); }, 'Capital falls = nation falls')),
-      ...(this.scenario.pandemic ? this.diseaseSetup() : []),
+      ...(this.scenario.pandemic ? this.diseaseSetup() : [])]),
       h('p', { class: 'setting-hint' }, 'Click a nation below, or any nation on the map and choose "Lead" in its panel.'),
       h('div', { class: 'pick-list' }, ...rows),
     );
@@ -129,6 +134,12 @@ export class NationPicker {
   }
 
   private choose(id: string) {
+    if (this.online) {
+      this.online.pick(id);
+      this.renderer.setSelection(null);
+      audio.play('capture');
+      return;
+    }
     this.store.dispatch({ type: 'chooseNation', nation: id, ...newGameRules(), ...diseaseChoice(this.store, this.scenario, id) }, id);
     this.renderer.setSelection(null);
     audio.play('capture');

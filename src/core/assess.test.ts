@@ -80,7 +80,10 @@ describe('estimate', () => {
     s = { ...s, armies: { ...s.armies, ...Object.fromEntries(ger.map((a) => [a.id, { ...a, location: from }])) } };
     const m = classifyMajor(s, world, { type: 'moveArmy', army: ger[0].id, to }, 'GER', 'all')!;
     expect(m.province).toBe(to);
-    expect(estimate(s, world, m).successChance).toBeGreaterThan(60);
+    // the whole group ordered in: good odds; one army alone (the others stay put): worse
+    const group = estimate(s, world, { ...m, armies: ger.map((a) => a.id) }).successChance;
+    expect(group).toBeGreaterThan(60);
+    expect(estimate(s, world, m).successChance).toBeLessThan(group);
   });
 });
 

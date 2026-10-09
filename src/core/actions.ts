@@ -1,12 +1,12 @@
 import { applyAgreement, PROPOSAL_DAYS, ULTIMATUM_GRACE_HOURS, validateTerms } from './diplomacy';
 import { addGrievance, addNote, addRelation, log, logEvent } from './events';
-import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
+import { applyStrike, armyName, canEnter, findPath, isFleet, routeProblem, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
 import { applyArm, applyLaunch, armError, launchError, type WeaponKind } from './weapons';
 import { aidError, applyAid, applyHealth, applyQuarantine, applyShareCure, customizeDisease, healthError, quarantineError, SEVERITIES, shareCureError } from './pandemic';
 import { formatShortDate } from './time';
 import { applyBuild, applyDevelop, applyMarket, applyRecruit, buildError, developError, initStocks, marketError, recruitError } from './economy';
-import { DIFFICULTIES, relationKey, type Severity, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
+import { DIFFICULTIES, lastRead, readKey, relationKey, type Severity, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
 
@@ -159,7 +159,7 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
         return `You are not at war with ${state.nations[target.owner].shortName}. Declare war first to invade.`;
       }
       if (!findPath(state, world, a.owner, a.unitType, a.location, action.to)) {
-        return fleet ? 'No sea route to there' : 'No route: the way is blocked by neutral territory or by enemy fleets';
+        return routeProblem(state, world, a.owner, a.unitType, a.location, action.to);
       }
       return null;
     }
@@ -403,8 +403,8 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
       return { ...state, diplomacy: { ...state.diplomacy, lastContact: { ...state.diplomacy.lastContact, [actor]: state.clock.hours } } };
 
     case 'markRead': {
-      const key = relationKey(actor, action.with);
-      if ((state.diplomacy.read?.[key] ?? -1) >= action.upTo) return state;
+      const key = readKey(actor, action.with);
+      if (lastRead(state, actor, action.with) >= action.upTo) return state;
       return { ...state, diplomacy: { ...state.diplomacy, read: { ...state.diplomacy.read, [key]: action.upTo } } };
     }
   }

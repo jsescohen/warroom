@@ -1,4 +1,6 @@
+import { exp } from './detmath';
 import { armyCap, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
+import { roll } from './world';
 import { basePop, POP_FLOOR, popRatio } from './population';
 import { healthIncome, healthUse, researchCost } from './pandemic';
 import { atWar, provincesOf } from './queries';
@@ -58,6 +60,13 @@ const HEALTH_MATERIALS: Partial<Record<BuildingId, Record<string, number>>> = {
   hospital: { medicine: 2, gear: 2 },
   lab: { reagents: 3 },
 };
+/** A province whose main city weighs this much is a big city (barracks from the start). */
+const BIG_CITY_WEIGHT = 0.8;
+/** Every barracks musters a basic unit for free this often, while the nation has manpower to spare. */
+export const MUSTER_DAYS = 30;
+/** Strength the mustered troops start at (they fill up at rest). */
+const MUSTER_STRENGTH = 0.6;
+
 /** Days to train a basic army (stronger units take longer, good sites less: see recruitSite). */
 export const TRAIN_DAYS = 12;
 /** Days to develop a province to a level: 20, 30, 40. */
@@ -210,7 +219,7 @@ export const MAX_DEAL = 40;
 export function marketPrice(s: GameState, world: World, r: string, shift = 0): number {
   const base = world.resources[r]?.price ?? 1;
   const pressure = (s.market?.[r] ?? 0) + shift;
-  return Math.round(Math.max(0.35, Math.min(3, Math.exp(pressure / MARKET_DEPTH))) * base * 100) / 100;
+  return Math.round(Math.max(0.35, Math.min(3, exp(pressure / MARKET_DEPTH))) * base * 100) / 100;
 }
 
 /** Money for buying (amount > 0) or selling (amount < 0) on the market; what you pay or get. */
@@ -469,6 +478,36 @@ export function projectsTick(state: GameState, world: World, log: Logger): GameS
   return s;
 }
 
+/**
+ * Barracks muster troops on their own: each raises a basic unit for free every MUSTER_DAYS (on its
+ * own day of the month), up to the nation's manpower, unless the enemy stands there. Not in a pandemic.
+ */
+export function musterTick(state: GameState, world: World, log: Logger): GameState {
+  if (state.disease || state.clock.hours % 24 !== 0) return state;
+  const day = state.clock.hours / 24;
+  if (day <= 0) return state;
+  const unit = basicUnit(world);
+  if (!unit) return state;
+  let s = state;
+  const raised = new Map<NationId, ProvinceId[]>();
+  for (const p of world.order) {
+    const ps = s.provinces[p];
+    if (!ps?.build?.includes('barracks')) continue;
+    if ((day + Math.floor(roll(p, 'muster') * MUSTER_DAYS)) % MUSTER_DAYS !== 0) continue;
+    const n = ps.owner;
+    if (!s.nations[n]?.alive || ps.siege || (ps.falloutUntil ?? 0) > s.clock.hours || hostileHere(s, world, n, p)) continue;
+    if (armyCount(s, world, n) + inTraining(s, n) >= manpowerCap(s, world, n)) continue;
+    s = raiseUnitOfType(s, world, n, p, unit, BASE_STRENGTH * MUSTER_STRENGTH, BASE_STRENGTH);
+    raised.set(n, [...(raised.get(n) ?? []), p]);
+  }
+  for (const [n, ps] of raised) {
+    if (!isHuman(s, n)) continue;
+    const where = ps.map((p) => world.provinces[p]?.name ?? p).join(', ');
+    s = log(s, { kind: 'mobilize', text: `New ${world.unitTypes[unit]?.name ?? 'troops'} muster at the barracks of ${where}.`, nations: [n] });
+  }
+  return s;
+}
+
 // ---- setup --------------------------------------------------------------------------------------
 
 /**
@@ -494,6 +533,8 @@ export function initEconomy(state: GameState, world: World): GameState {
       };
       add(n.capital, 'barracks');
       for (const p of home.slice(0, Math.floor(cap / 8))) add(p, 'barracks');
+      // every big city of the homeland too
+      for (const p of home) if (provinceWeight(world, p) >= BIG_CITY_WEIGHT) add(p, 'barracks');
       if (air && n.units.some((u) => isAirUnit(world, u))) {
         add(n.capital, 'airfield');
         for (const p of home.slice(0, Math.floor(cap / 16))) add(p, 'airfield');
@@ -505,6 +546,11 @@ export function initEconomy(state: GameState, world: World): GameState {
     const funded = { ...s.nations };
     for (const n of todo) if (funded[n.id]?.alive) funded[n.id] = { ...funded[n.id], treasury: Math.max(10, Math.round(budgetOf(s, world, n.id).land * 2)) };
     s = { ...s, nations: funded };
+  }
+  // every capital has barracks (saves from before, and capitals that moved)
+  for (const n of Object.values(s.nations)) {
+    const ps = n.alive && n.capital ? s.provinces[n.capital] : null;
+    if (ps && !ps.build?.includes('barracks')) s = { ...s, provinces: { ...s.provinces, [n.capital!]: { ...ps, build: [...(ps.build ?? []), 'barracks'] } } };
   }
   return initStocks(s, world);
 }

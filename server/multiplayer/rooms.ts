@@ -34,6 +34,8 @@ export type TickSeconds = (scenarioId: string) => number | null;
 
 const STREAM_KEEP = 20_000;
 const SNAPSHOT_EVERY_TICKS = 150;
+/** How long to wait for the host's copy of the game before falling back to the kept one. */
+const SNAPSHOT_WAIT_MS = 8000;
 const IDLE_LOBBY_MS = 15 * 60_000;
 const IDLE_GAME_MS = 6 * 3600_000;
 /** Actions a player's browser may send on behalf of an AI leader they are talking to. */
@@ -203,7 +205,6 @@ export class Room {
   start(c: Conn): string | null {
     if (c.userId !== this.hostId) return 'Only the host can start the game';
     if (this.status !== 'lobby') return 'The game has already started';
-    if (!this.members.get(c.userId)?.nation) return 'Choose your nation first';
     this.status = 'running';
     for (const conn of this.conns()) { conn.ready = true; conn.send({ t: 'begin', room: this.info() }); }
     this.streamPlayers();
@@ -285,10 +286,23 @@ export class Room {
   /** Asks the host for the current game, for `forConn` (a joining or drifted player) or to keep. */
   private requestSnapshot(forConn: Conn | null) {
     const host = this.host();
-    if (!host) return false;
+    if (!host) {
+      if (forConn && this.snapshot) this.load(forConn, this.snapshot.seq, this.snapshot.state);
+      return false;
+    }
     const req = this.nextReq++;
     this.waiting.set(req, new Set(forConn ? [forConn] : []));
     host.send({ t: 'snap?', req });
+    // a host whose tab sleeps (a phone in the pocket) never answers: use the last kept copy
+    if (forConn) {
+      const timer = setTimeout(() => {
+        const left = this.waiting.get(req);
+        if (!left) return;
+        this.waiting.delete(req);
+        for (const c of left) if (c.room === this && !c.ready && this.snapshot) this.load(c, this.snapshot.seq, this.snapshot.state);
+      }, SNAPSHOT_WAIT_MS);
+      timer.unref?.();
+    }
     return true;
   }
 
@@ -377,6 +391,11 @@ export class Rooms {
     }, 2000));
   }
 
+  /** Rooms a player belongs to, newest first (games they can go back to). */
+  mine(userId: string): ReturnType<Room['info']>[] {
+    return [...this.rooms.values()].filter((r) => r.members.has(userId)).map((r) => r.info()).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+  }
+
   list(): ReturnType<Room['info']>[] {
     return [...this.rooms.values()]
       .filter((r) => r.settings.visibility === 'public' && r.members.size < r.settings.maxPlayers)
@@ -396,6 +415,8 @@ export class Rooms {
     switch (msg.t) {
       case 'list':
         return c.send({ t: 'rooms', rooms: this.list() });
+      case 'mine':
+        return c.send({ t: 'mine', rooms: this.mine(c.userId) });
       case 'create': {
         const settings = cleanSettings(msg.settings);
         const secs = settings && this.tickSeconds(settings.scenarioId);

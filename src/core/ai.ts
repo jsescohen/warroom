@@ -1,3 +1,4 @@
+import { dist as dist2 } from './detmath';
 import type { Command } from './actions';
 import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplomacy';
 import { addRelation, getRel } from './events';
@@ -56,7 +57,7 @@ function rand(s: GameState): [number, GameState] {
 
 const dist = (world: World, a: ProvinceId, b: ProvinceId) => {
   const p = world.provinces[a].label, q = world.provinces[b].label;
-  return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  return dist2(p[0] - q[0], p[1] - q[1]);
 };
 
 const armyPower = (s: GameState, world: World, a: Army, defending: boolean) => {

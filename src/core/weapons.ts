@@ -1,3 +1,4 @@
+import { dist as hyp } from './detmath';
 import { addGrievance, addRelation } from './events';
 import { applyCivilianLosses, basePop } from './population';
 import { atWar } from './queries';
@@ -67,7 +68,7 @@ export function applyArm(s: GameState, world: World, n: NationId, w: WeaponKind)
 
 const dist = (world: World, a: ProvinceId, b: ProvinceId) => {
   const p = world.provinces[a]?.label, q = world.provinces[b]?.label;
-  return p && q ? Math.hypot(p[0] - q[0], p[1] - q[1]) : Infinity;
+  return p && q ? hyp(p[0] - q[0], p[1] - q[1]) : Infinity;
 };
 
 /** Distance from the nearest province the nation holds. */
@@ -162,6 +163,6 @@ export function applyLaunch(state: GameState, world: World, n: NationId, w: Weap
     s = addRelation(s, x, n, x === owner ? -100 : -35);
     if (x === owner || s.nations[x].major) s = addGrievance(s, x, n, `${formatShortDate(s.clock)}: used a nuclear weapon on ${where}.`);
   }
-  return log(s, { kind: 'nuke', text: `☢ ${who} has used a nuclear weapon on ${where}. The world is horrified.`, nations: [n, ...victims], important: true });
+  return log(s, { kind: 'nuke', text: `â˜¢ ${who} has used a nuclear weapon on ${where}. The world is horrified.`, nations: [n, ...victims], important: true });
 }
 

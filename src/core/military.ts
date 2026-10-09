@@ -1,3 +1,4 @@
+import { dist, pow075 } from './detmath';
 import { atWar, friendly, getRelation, provincesOf } from './queries';
 import { nextRandom } from './rng';
 import type { UnitTypeDef } from './scenario';
@@ -107,7 +108,7 @@ const LARGE_NATION = 25;
  * which made small nations too strong and large ones too weak).
  */
 export const armyCap = (provinceCount: number, military: number) =>
-  Math.max(1, Math.min(40, Math.round(military * (1 + Math.pow(provinceCount, 0.75) * 0.75))));
+  Math.max(1, Math.min(40, Math.round(military * (1 + pow075(provinceCount) * 0.75))));
 
 /** Target number of fleets: about six for a first-rate naval power, none without a coast. */
 export function fleetCap(s: GameState, world: World, n: NationId): number {
@@ -126,7 +127,7 @@ export function homePort(s: GameState, world: World, n: NationId): ProvinceId | 
   for (const id of world.order) {
     if (s.provinces[id]?.owner !== n || !world.provinces[id].coastal) continue;
     const q = world.provinces[id].label;
-    const d = Math.hypot(q[0] - at[0], q[1] - at[1]);
+    const d = dist(q[0] - at[0], q[1] - at[1]);
     if (d < bestD) { best = id; bestD = d; }
   }
   return best;
@@ -191,7 +192,7 @@ export function seaPower(s: GameState, world: World, n: NationId, p: ProvinceId,
     let w = 1;
     if (q !== p) {
       const l = world.provinces[q].label;
-      const d = Math.hypot(l[0] - at[0], l[1] - at[1]);
+      const d = dist(l[0] - at[0], l[1] - at[1]);
       if (d > SEA_REACH) continue;
       w = 0.5;
     }
@@ -281,6 +282,42 @@ export function findPath(s: GameState, world: World, owner: NationId, unitType: 
   return { path, hours: Math.round(dist.get(to)! + enemyStops * captureHours) };
 }
 
+/**
+ * Why an army has no route to a province, in words: the neutral nations in the way (named), or
+ * the sea where enemy fleets rule the crossing.
+ */
+export function routeProblem(s: GameState, world: World, owner: NationId, unitType: string, from: ProvinceId, to: ProvinceId): string {
+  if (isFleet(world, unitType)) return 'No sea route to there';
+  const name = (n: NationId) => s.nations[n]?.shortName ?? n;
+  const bySea = findPath(s, world, owner, unitType, from, to, { ignoreSeaControl: true });
+  if (bySea) {
+    let prev = from;
+    for (const p of bySea.path) {
+      const link = world.provinces[prev].links.find((l) => l.to === p);
+      if (link?.sea && (seaDenied(s, world, owner, prev) || seaDenied(s, world, owner, p)))
+        return `No route: enemy fleets rule the sea between ${world.provinces[prev].name} and ${world.provinces[p].name}. Beat them with your own fleets first, or go another way.`;
+      prev = p;
+    }
+    return 'No route: enemy fleets rule the sea on the way. Beat them with your own fleets first.';
+  }
+  // the shortest way ignoring borders: whose land would the army have to cross?
+  const seen = new Map<ProvinceId, ProvinceId | null>([[from, null]]);
+  let frontier = [from];
+  while (frontier.length && !seen.has(to)) {
+    const next: ProvinceId[] = [];
+    for (const id of frontier) for (const l of world.provinces[id].links) if (!seen.has(l.to)) { seen.set(l.to, id); next.push(l.to); }
+    frontier = next;
+  }
+  const blockers: NationId[] = [];
+  for (let c = seen.get(to); c && c !== from; c = seen.get(c)) {
+    const o = s.provinces[c]?.owner;
+    if (o && !canEnter(s, owner, c) && !blockers.includes(o)) blockers.unshift(o);
+  }
+  if (!blockers.length) return 'No route to there';
+  const list = blockers.slice(0, 3).map(name).join(', ');
+  return `No route: ${list} ${blockers.length === 1 ? 'is' : 'are'} in the way, and armies cannot march through a country they are not allied with or at war with. Ally with ${blockers.length === 1 ? 'it' : 'them'}, go around by sea, or declare war.`;
+}
+
 // ---- ownership ----------------------------------------------------------------------------------
 
 /**
@@ -313,11 +350,13 @@ export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: 
     const at = world?.provinces[province]?.label;
     let newCap = remaining[0];
     if (at) {
-      const d = (p: ProvinceId) => Math.hypot(world!.provinces[p].label[0] - at[0], world!.provinces[p].label[1] - at[1]);
+      const d = (p: ProvinceId) => dist(world!.provinces[p].label[0] - at[0], world!.provinces[p].label[1] - at[1]);
       const byDist = [...remaining].sort((a, b) => d(a) - d(b) || (a < b ? -1 : 1));
       newCap = byDist.find((p) => d(p) >= CAPITAL_FLIGHT_DIST) ?? byDist[byDist.length - 1];
     }
     next = { ...next, nations: { ...next.nations, [from]: { ...loser, capital: newCap } } };
+    const cap = next.provinces[newCap];
+    if (cap && !cap.build?.includes('barracks')) next = { ...next, provinces: { ...next.provinces, [newCap]: { ...cap, build: [...(cap.build ?? []), 'barracks'] } } };
     next = log(next, { kind: 'capital', text: `${s.nations[to].shortName} takes ${possessive(loser.shortName)} capital! The government flees.`, nations: [from, to], important: true });
   }
 
@@ -527,7 +566,8 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
       continue;
     }
     const lead = besiegers.reduce((a, b) => (s.armies[b].strength > s.armies[a].strength ? b : a));
-    const by = s.armies[lead].owner;
+    // whoever began the siege keeps it while their troops stay (allies joining do not reset it)
+    const by = p.siege && besiegers.some((id) => s.armies[id].owner === p.siege!.by) ? p.siege.by : s.armies[lead].owner;
     civilian.set(province, Math.max(civilian.get(province) ?? 0, SIEGE_DEATHS_PER_DAY * tickDays));
     if ((p.garrison ?? garrisonMax(s, province)) > 0.05) {
       // still fighting the garrison: show the siege, but no progress yet
@@ -627,6 +667,74 @@ const withoutSiege = (p: ProvinceState): ProvinceState => {
   return rest;
 };
 
+// ---- forecasting an assault --------------------------------------------------------------------
+
+export interface AssaultForecast {
+  won: boolean;
+  /** Days until the province is taken (or the attack fails). */
+  days: number;
+  /** Attacking strength left at the end. */
+  left: number;
+}
+
+/**
+ * Plays out an attack on a province with the battle rules above (fixed luck, no AI moves): the
+ * attackers against the defending armies, then the garrison, then the siege until the province
+ * falls. `reinforce` is the share of the hostile armies next door that join the defence after
+ * `reinforceDays`; `luck` scales our damage (and its inverse theirs). Used for the staff odds.
+ */
+export function forecastAssault(s: GameState, world: World, attackers: Army[], p: ProvinceId,
+  opts: { reinforce: number; luck: number; reinforceDays?: number; landing?: boolean; maxDays?: number }): AssaultForecast {
+  const ps = s.provinces[p];
+  const owner = ps.owner;
+  const me = attackers[0]?.owner;
+  if (!me) return { won: false, days: 0, left: 0 };
+  const dt = 0.25;
+  const unit = (a: Army) => world.unitTypes[a.unitType];
+  const q = (a: Army) => (s.nations[a.owner]?.quality ?? 1) * aiEdge(s, a.owner) * supplyFactor(s, world, a);
+  const home = (s.rules.homeDefense ?? 1.2) * (s.nations[owner]?.capital === p ? CAPITAL_DEFENSE : 1);
+  const ours = attackers.filter((a) => !isFleet(world, a.unitType)).map((a) => ({ a, str: a.strength }));
+  const land = (a: Army) => !isFleet(world, a.unitType) && atWar(s, me, a.owner);
+  const theirs = Object.values(s.armies).filter((a) => land(a) && a.location === p && a.progress === 0).map((a) => ({ a, str: a.strength }));
+  const nearby = Object.values(s.armies).filter((a) => land(a) && a.location !== p && world.provinces[p].links.some((l) => l.to === a.location));
+  let g = garrisonOf(s, p);
+  let progress = ps.siege?.by === me ? ps.siege.progress : 0;
+  const maxDays = opts.maxDays ?? 30;
+  let joined = false;
+  for (let t = 0; t < maxDays; t += dt) {
+    if (!joined && opts.reinforce > 0 && t >= (opts.reinforceDays ?? 2)) {
+      joined = true;
+      for (const a of nearby) theirs.push({ a, str: a.strength * opts.reinforce });
+    }
+    const alive = (x: { str: number }) => x.str >= 0.5;
+    const us = ours.filter(alive), them = theirs.filter(alive);
+    if (!us.length) return { won: false, days: t, left: 0 };
+    if (!them.length && g <= 0.05) {
+      // the siege: an unopposed army takes the province over time
+      const power = us.reduce((x, o) => x + o.str, 0);
+      const factor = (s.nations[owner]?.capital === p ? 1 / 3 : 1) / Math.max(0.8, 1 + (provinceWeight(world, p) - 0.55) * 0.8);
+      progress += (CAPTURE_PER_DAY / (s.rules.captureDays ?? 1)) * dt * Math.min(1, power / 6) * factor;
+      if (progress >= 1) return { won: true, days: t + dt, left: power };
+      continue;
+    }
+    const landed = opts.landing && t < AMPHIBIOUS_HOURS / 24 ? AMPHIBIOUS_PENALTY : 1;
+    // damage out, shared over the targets (and the garrison) by strength, as in militaryTick
+    let toThem = 0;
+    for (const o of us) toThem += o.str * q(o.a) * (unit(o.a)?.attack ?? 3) * landed * DAMAGE_PER_DAY * dt * opts.luck;
+    let toUs = g * (s.nations[owner]?.quality ?? 1) * aiEdge(s, owner) * GARRISON_DEFENSE * home * DAMAGE_PER_DAY * dt / opts.luck;
+    for (const o of them) {
+      const defending = friendly(s, o.a.owner, owner);
+      toUs += o.str * q(o.a) * ((defending ? unit(o.a)?.defense : unit(o.a)?.attack) ?? 3) * (defending ? home : 1) * DAMAGE_PER_DAY * dt / opts.luck;
+    }
+    const theirTotal = them.reduce((x, o) => x + o.str, 0) + g;
+    const ourTotal = us.reduce((x, o) => x + o.str, 0);
+    for (const o of them) o.str -= (toThem * o.str) / theirTotal;
+    g = Math.max(0, g - (toThem * g) / theirTotal);
+    for (const o of us) o.str -= (toUs * o.str) / ourTotal;
+  }
+  return { won: false, days: maxDays, left: ours.reduce((x, o) => x + Math.max(0, o.str), 0) };
+}
+
 // ---- strikes ------------------------------------------------------------------------------------
 
 /** Why a fleet cannot strike a province right now, or null if it can. */
@@ -639,7 +747,7 @@ export function strikeError(s: GameState, world: World, fleetId: ArmyId, target:
   if (a.progress > 0) return 'Units on the move cannot strike: halt first';
   if ((a.readyAt ?? 0) > s.clock.hours) return `${strike.kind === 'air' ? 'Aircraft are rearming' : 'Drones are rearming'}: ready in ${Math.ceil((a.readyAt! - s.clock.hours))} h`;
   const from = world.provinces[a.location].label, to = world.provinces[target].label;
-  if (Math.hypot(from[0] - to[0], from[1] - to[1]) > strike.range) return 'Out of range';
+  if (dist(from[0] - to[0], from[1] - to[1]) > strike.range) return 'Out of range';
   if (!strikeTargets(s, a.owner, target).length && !(atWar(s, a.owner, s.provinces[target].owner) && garrisonOf(s, target) > 0.05))
     return 'No enemy forces there';
   return null;
@@ -757,7 +865,7 @@ export function deployStartingArmies(s: GameState, world: World): GameState {
       return t;
     };
     const capAt = world.provinces[n.capital ?? owned[0]].label;
-    const d = (p: ProvinceId) => Math.hypot(world.provinces[p].label[0] - capAt[0], world.provinces[p].label[1] - capAt[1]);
+    const d = (p: ProvinceId) => dist(world.provinces[p].label[0] - capAt[0], world.provinces[p].label[1] - capAt[1]);
     const homeSet = homelandOf(s, world, n.id);
     const homeland = (p: ProvinceId) => homeSet.has(p);
     const ranked = owned

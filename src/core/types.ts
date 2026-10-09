@@ -338,3 +338,11 @@ export function aiEdge(s: GameState, nation: NationId): number {
 }
 
 export const relationKey = (a: NationId, b: NationId) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/**
+ * The last message `reader` has read in its conversation with `other`. Each side keeps its own mark
+ * (online, both may be people); saves from before kept one mark per conversation.
+ */
+export const readKey = (reader: NationId, other: NationId) => `${reader}>${other}`;
+export const lastRead = (s: GameState, reader: NationId, other: NationId) =>
+  s.diplomacy.read?.[readKey(reader, other)] ?? s.diplomacy.read?.[relationKey(reader, other)] ?? -1;

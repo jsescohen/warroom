@@ -1,3 +1,4 @@
+import { cos, dist as hyp } from './detmath';
 import type { ResourceDef, UnitTypeDef } from './scenario';
 import type { ProvinceId } from './types';
 
@@ -78,8 +79,8 @@ export function placeResources(input: { id: ProvinceId; lonlat?: [number, number
   const located = input.filter((p) => p.lonlat);
   const d = (p: { lonlat?: [number, number] }, lon: number, lat: number) => {
     const [x, y] = p.lonlat!;
-    const dx = (((x - lon + 540) % 360) - 180) * Math.cos(((y + lat) / 2) * (Math.PI / 180));
-    return Math.hypot(dx, y - lat);
+    const dx = (((x - lon + 540) % 360) - 180) * cos(((y + lat) / 2) * (Math.PI / 180));
+    return hyp(dx, y - lat);
   };
   for (const r of resources) {
     for (const [lon, lat, radius] of r.deposits) {
@@ -119,7 +120,7 @@ export function buildWorld(input: WorldProvinceInput[], unitTypes: UnitTypeDef[]
   const placed = placeResources(input, resources);
   const provinces: Record<ProvinceId, WorldProvince> = {};
   const byId = new Map(input.map((p) => [p.id, p]));
-  const dist = (a: WorldProvinceInput, b: WorldProvinceInput) => Math.hypot(a.label[0] - b.label[0], a.label[1] - b.label[1]);
+  const dist = (a: WorldProvinceInput, b: WorldProvinceInput) => hyp(a.label[0] - b.label[0], a.label[1] - b.label[1]);
   for (const p of input) {
     provinces[p.id] = {
       id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop ?? 0, resource: placed.get(p.id),

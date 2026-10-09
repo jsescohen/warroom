@@ -12,6 +12,20 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.8.1',
+    date: '2026-10-09',
+    title: 'Fixes from your feedback',
+    items: [
+      { title: 'Honest odds', how: 'The chance of success before an attack now plays the battle out with the real rules: only the armies you order in count (not every army nearby), with the defenders’ home bonus, the garrison, landings from the sea and enemy help from next door. It also says how many days the province should take.' },
+      { title: 'Why there is no route', how: 'When an army cannot get somewhere, the game now names the country in the way (or the stretch of sea enemy fleets control) and says what to do: ally with them, go around by sea, or declare war.' },
+      { title: 'Barracks muster troops', how: 'Every barracks raises a basic unit for free once a month, up to your manpower. Capitals always have barracks (also after the government flees to a new one), and big cities start with them.' },
+      { title: 'A bit faster', how: '1× is now 10 seconds a day in the modern eras (13 seconds a week in the ancient ones).' },
+      { title: 'Multiplayer: your games', how: 'The Multiplayer screen lists every game you are in, with Rejoin. The host can start right away, and everyone chooses their nation on the map like a normal game.' },
+      { title: 'Multiplayer: chat fixed', how: 'Messages from other players now show an unread badge and a notice, and reading a conversation no longer marks it read for the other player. Games no longer drift apart between phones and computers, and a player is never left frozen waiting for the host.' },
+      { title: 'Sieges', how: 'An ally joining your siege no longer resets its progress.' },
+    ],
+  },
+  {
     version: '0.8',
     date: '2026-10-09',
     title: 'Pandemic',

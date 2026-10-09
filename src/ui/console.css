@@ -289,3 +289,5 @@
 .mp-players li { display: flex; align-items: center; gap: 10px; }
 .mp-players .chip { font-size: 10px; }
 @media (max-width: 560px) { .mp-field { grid-template-columns: 1fr; gap: 4px; } .mp-rooms li { grid-template-columns: 1fr auto; } }
+
+.mp-mine { grid-column: 1 / -1; }

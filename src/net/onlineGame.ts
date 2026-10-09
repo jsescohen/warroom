@@ -12,6 +12,10 @@ export interface OnlineHud {
   paused(): boolean;
   togglePause(): void;
   onChange(fn: () => void): () => void;
+  /** Choose this player's nation (once, on the map). */
+  pick(nation: string): void;
+  /** Nations other players lead, with their names. */
+  taken(): Map<string, string>;
 }
 
 /**
@@ -75,5 +79,7 @@ export function attachOnline(store: GameStore, loop: GameLoop, client: MpClient,
     paused: () => client.room?.status === 'paused',
     togglePause: () => client.pause(client.room?.status !== 'paused'),
     onChange: (fn) => { changed.add(fn); return () => changed.delete(fn); },
+    pick: (nation) => client.pick(nation),
+    taken: () => new Map((client.room?.players ?? []).filter((p) => p.nation && p.userId !== client.userId).map((p) => [p.nation!, p.username])),
   };
 }

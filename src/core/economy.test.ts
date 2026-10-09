@@ -121,9 +121,20 @@ describe('economy', () => {
   it('settles income and upkeep every month', () => {
     let s = act(fresh(), { type: 'chooseNation', nation: 'SWE' }, 'SWE');
     const before = s.nations.SWE.treasury!;
+    // the budget as it stands on payday (barracks may have mustered troops during the month)
+    s = tick(s, 4 * 30 - 1);
     const net = budgetOf(s, world, 'SWE').net;
-    s = tick(s, 4 * 30);
+    s = tick(s, 1);
     expect(s.nations.SWE.treasury).toBeCloseTo(before + net, 0);
+  });
+
+  it('barracks muster free troops each month, up to the manpower limit', () => {
+    let s = act(fresh(), { type: 'chooseNation', nation: 'FRA' }, 'FRA');
+    const start = armyCount(s, world, 'FRA');
+    s = tick(s, 4 * 31);
+    expect(armyCount(s, world, 'FRA')).toBeGreaterThan(start);
+    expect(armyCount(s, world, 'FRA') + inTraining(s, 'FRA')).toBeLessThanOrEqual(manpowerCap(s, world, 'FRA'));
+    expect(s.provinces[s.nations.FRA.capital!].build).toContain('barracks');
   });
 
   it('brings saves from before the economy up to date', () => {

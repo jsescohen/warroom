@@ -6,6 +6,7 @@ const ROOM_KEY = 'warroom.room';
 type Handlers = {
   hello: (m: { userId: string; username: string }) => void;
   rooms: (rooms: RoomInfo[]) => void;
+  mine: (rooms: RoomInfo[]) => void;
   room: (room: RoomInfo | null) => void;
   begin: (room: RoomInfo) => void;
   load: (seq: number, state: unknown) => void;
@@ -23,7 +24,7 @@ type Handlers = {
 export class MpClient {
   private ws: WebSocket | null = null;
   private handlers: { [K in keyof Handlers]: Set<Handlers[K]> } = {
-    hello: new Set(), rooms: new Set(), room: new Set(), begin: new Set(), load: new Set(), stream: new Set(), snapshotRequest: new Set(), error: new Set(), status: new Set(),
+    hello: new Set(), rooms: new Set(), mine: new Set(), room: new Set(), begin: new Set(), load: new Set(), stream: new Set(), snapshotRequest: new Set(), error: new Set(), status: new Set(),
   };
   private queue: ClientMsg[] = [];
   private retry = 0;
@@ -88,6 +89,7 @@ export class MpClient {
         if (this.roomCode) this.send({ t: 'join', code: this.roomCode });
         return this.emit('hello', msg);
       case 'rooms': return this.emit('rooms', msg.rooms);
+      case 'mine': return this.emit('mine', msg.rooms);
       case 'room':
         this.room = msg.room;
         this.remember(msg.room?.code ?? null);
@@ -122,7 +124,7 @@ export class MpClient {
     else if (msg.t !== 'hash' && msg.t !== 'snapshot' && msg.t !== 'cmd') this.queue.push(msg);
   }
 
-  list() { this.send({ t: 'list' }); }
+  list() { this.send({ t: 'list' }); this.send({ t: 'mine' }); }
   create(settings: RoomSettings) { this.send({ t: 'create', settings }); }
   join(code: string) { this.send({ t: 'join', code }); }
   leave() { this.remember(null); this.send({ t: 'leave' }); }

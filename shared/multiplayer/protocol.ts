@@ -50,6 +50,8 @@ export interface StreamCommand {
 export type ClientMsg =
   | { t: 'auth'; token: string }
   | { t: 'list' }
+  /** The rooms I am a player in (to rejoin a game I left). */
+  | { t: 'mine' }
   | { t: 'create'; settings: RoomSettings }
   | { t: 'join'; code: string }
   | { t: 'leave' }
@@ -69,6 +71,7 @@ export type ServerMsg =
   | { t: 'hello'; userId: string; username: string }
   | { t: 'error'; error: string }
   | { t: 'rooms'; rooms: RoomInfo[] }
+  | { t: 'mine'; rooms: RoomInfo[] }
   | { t: 'room'; room: RoomInfo | null }
   /** The game begins: everyone builds the starting state themselves; the stream follows. */
   | { t: 'begin'; room: RoomInfo }

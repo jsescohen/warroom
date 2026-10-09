@@ -1,12 +1,12 @@
 import { getAiInfo, pingAi } from '../ai/llmClient';
 import { validate, type Action } from '../core/actions';
 import { classifyMajor, type AssessorMode } from '../core/assess';
-import { canEnter, findPath, garrisonMax, garrisonOf, isFleet, strikeError } from '../core/military';
+import { canEnter, findPath, garrisonMax, garrisonOf, isFleet, routeProblem, strikeError } from '../core/military';
 import { atWar, friendly } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import { formatDate, formatShortDate, turnNumber } from '../core/time';
-import type { Army, GameState, NationId } from '../core/types';
+import { isHuman, type Army, type GameState, type NationId } from '../core/types';
 import { audio } from '../audio/audio';
 import { newImportant, SPEEDS, type GameLoop, type Speed } from '../game/loop';
 import type { GameSession } from '../game/session';
@@ -82,7 +82,13 @@ export class Hud {
     private onLoadGame: (id: string) => void,
   ) {
     this.side = new SidePanel(map, store.world, {
-      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, ...newGameRules(), ...diseaseChoice(store, scenario, nation) }, nation),
+      chooseNation: (nation) => {
+        if (this.online) {
+          if (this.online.taken().has(nation)) return this.toast(`Another player leads ${this.state.nations[nation]?.shortName ?? nation}.`, 'alert');
+          return this.online.pick(nation);
+        }
+        this.dispatch({ type: 'chooseNation', nation, ...newGameRules(), ...diseaseChoice(store, scenario, nation) }, nation);
+      },
       declareWar: (target) => void this.declareWar(target),
       selectArmy: (id) => this.select({ kind: 'army', id }),
       armyOrder: (type, army) => this.dispatch({ type, army } as Action),
@@ -225,6 +231,21 @@ export class Hud {
       const leader = leaderOf(scenario, s, from).name.replace(/^the /, 'The ');
       const hostile = !!s.playerNation && (s.wars.some((w) => [w.attackers, w.defenders].some((side) => side.includes(from)) && [w.attackers, w.defenders].some((side) => side.includes(s.playerNation!))));
       this.toast(`✉ Message from ${leader} (${s.nations[from].shortName}). Click to read.`, hostile ? 'alert' : 'info', () => this.diplo.open(from));
+    });
+    // online: a letter from another player (AI leaders announce theirs through the director)
+    store.subscribe((s, prev) => {
+      const me = s.playerNation;
+      if (!me || s.diplomacy.chats === prev.diplomacy.chats || this.diplo.isOpen) return;
+      for (const [key, lines] of Object.entries(s.diplomacy.chats)) {
+        if (lines === prev.diplomacy.chats[key] || !key.split('|').includes(me)) continue;
+        const before = prev.diplomacy.chats[key]?.at(-1)?.id ?? -1;
+        const fresh = lines.filter((l) => l.id > before && l.from !== me && isHuman(s, l.from));
+        const last = fresh.at(-1);
+        if (!last) continue;
+        audio.play('message');
+        const text = last.text.length > 70 ? `${last.text.slice(0, 70)}…` : last.text;
+        this.toast(`✉ ${s.nations[last.from]?.shortName ?? last.from} (player): "${text}" Click to answer.`, 'info', () => this.diplo.open(last.from));
+      }
     });
     const news = new NewsTicker(store, scenario);
     root.append(this.topbar, this.stockMenu, this.mobileBar, this.side.el, this.log, news.el, modes, zoom, this.tip, this.toasts, this.diplo.el);
@@ -440,7 +461,7 @@ export class Hud {
     } else {
       const first = land[0] ?? armies[0];
       const major = classifyMajor(s, world, { type: 'moveArmy', army: first.id, to }, player, this.assessorMode);
-      if (major && !(await this.withPause(() => assessAction({ ...this.assessCtx(), major: { ...major, label: `${major.label} (${armies.length} armies)` }, confirmLabel: 'Give the order' })))) return;
+      if (major && !(await this.withPause(() => assessAction({ ...this.assessCtx(), major: { ...major, armies: land.map((a) => a.id), label: `${major.label} (${armies.length} armies)` }, confirmLabel: 'Give the order' })))) return;
     }
     let ok = 0;
     const failed: string[] = [];
@@ -851,10 +872,7 @@ export class Hud {
       } else {
         const route = findPath(s, world, army.owner, army.unitType, army.location, id);
         if (!route) {
-          const bySea = !fleet && findPath(s, world, army.owner, army.unitType, army.location, id, { ignoreSeaControl: true });
-          parts.push(h('span', { class: 'tip-line danger-text' }, bySea
-            ? 'No route: enemy fleets control the sea on the way. Win the sea with your fleet first.'
-            : fleet ? 'No sea route' : 'No route: blocked by neutral or friendly land'));
+          parts.push(h('span', { class: 'tip-line danger-text' }, routeProblem(s, world, army.owner, army.unitType, army.location, id)));
           this.renderer.setMovePreview([start, geo.label], false);
         } else {
           const enemy = !fleet && s.provinces[id].owner !== army.owner && !friendly(s, army.owner, s.provinces[id].owner);

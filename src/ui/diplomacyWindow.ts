@@ -6,7 +6,7 @@ import { allied, atWar, getRelation } from '../core/queries';
 import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import { formatDate, formatShortDate } from '../core/time';
-import { isHuman, relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms } from '../core/types';
+import { isHuman, lastRead, relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms } from '../core/types';
 import { treatyName } from '../core/war';
 import type { Diplomat } from '../game/diplomat';
 import { fill, h, swatch } from './dom';
@@ -134,7 +134,7 @@ export class DiplomacyWindow {
     const key = relationKey(me, other);
     const lines = s.diplomacy.chats[key];
     if (!lines) return 0;
-    const seen = s.diplomacy.read?.[key] ?? -1;
+    const seen = lastRead(s, me, other);
     return lines.filter((l) => l.from === other && l.id > seen).length;
   }
 
@@ -145,7 +145,7 @@ export class DiplomacyWindow {
     if (this.current && this.isOpen) {
       const key = relationKey(s.playerNation!, this.current);
       const last = s.diplomacy.chats[key]?.at(-1);
-      if (last && (s.diplomacy.read?.[key] ?? -1) < last.id && !this.store.readOnly) {
+      if (last && lastRead(s, s.playerNation!, this.current) < last.id && !this.store.readOnly) {
         this.store.dispatch({ type: 'markRead', with: this.current, upTo: last.id }, s.playerNation!);
         return; // the dispatch re-renders
       }

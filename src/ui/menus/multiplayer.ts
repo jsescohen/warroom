@@ -25,6 +25,8 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
   const status = h('div', { class: 'mp-status' });
   const error = h('p', { class: 'beta-error', role: 'alert' });
   let rooms: RoomInfo[] = [];
+  /** Games I am a player in: to go back to after leaving or closing the tab. */
+  let mine: RoomInfo[] = [];
   let creating = false;
   let entered = false;
   const offs: (() => void)[] = [];
@@ -56,21 +58,11 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
     const sc = getScenario(room.scenarioId);
     const me = room.players.find((p) => p.userId === client.userId);
     const host = !!me?.host;
-    const taken = new Map(room.players.filter((p) => p.nation && p.userId !== client.userId).map((p) => [p.nation!, p.username]));
-    const nations = [...(sc?.nations ?? [])].sort((a, b) => Number(!!b.major) - Number(!!a.major) || (a.shortName ?? a.name).localeCompare(b.shortName ?? b.name));
-    const pick = h('select', { class: 'mp-select', 'aria-label': 'Your nation' },
-      h('option', { value: '' }, 'Choose your nation…'),
-      ...nations.map((n) => h('option', { value: n.id, disabled: taken.has(n.id) },
-        `${n.shortName ?? n.name}${n.major ? ' ★' : ''}${taken.has(n.id) ? ` — ${taken.get(n.id)}` : ''}`)),
-    ) as HTMLSelectElement;
-    pick.value = me?.nation ?? '';
-    pick.disabled = room.status !== 'lobby' && !!me?.nation;
-    pick.addEventListener('change', () => client.pick(pick.value || null));
+    const running = room.status !== 'lobby';
     const invite = `${location.origin}/?room=${room.code}`;
     const copy = h('button', { class: 'btn', onclick: async () => {
       try { await navigator.clipboard.writeText(invite); copy.textContent = 'Copied!'; } catch { window.prompt('Copy this invite link', invite); }
     } }, 'Copy invite link');
-    const running = room.status !== 'lobby';
     fill(body,
       h('section', { class: 'cx-card mp-room' },
         h('div', { class: 'mp-room-head' },
@@ -87,12 +79,12 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
         h('ul', { class: 'mp-players' }, ...room.players.map((p) => h('li', null,
           h('i', { class: `mp-dot${p.connected ? ' on' : ''}`, title: p.connected ? 'Online' : 'Away' }),
           h('strong', null, p.username), p.host ? h('span', { class: 'chip' }, 'Host') : null,
-          h('span', { class: 'dim' }, p.nation ? sc?.nations.find((n) => n.id === p.nation)?.shortName ?? sc?.nations.find((n) => n.id === p.nation)?.name ?? p.nation : 'choosing…')))),
-        h('label', { class: 'mp-field' }, h('span', null, 'Your nation'), pick),
+          h('span', { class: 'dim' }, p.nation ? sc?.nations.find((n) => n.id === p.nation)?.shortName ?? sc?.nations.find((n) => n.id === p.nation)?.name ?? p.nation : running ? 'choosing on the map' : '')))),
+        h('p', { class: 'dim small' }, 'Everyone chooses their nation on the map once the game begins, as in a normal game.'),
         h('div', { class: 'mp-actions' },
-          !running && host ? h('button', { class: 'btn primary', disabled: !me?.nation, title: me?.nation ? 'Everyone in the room starts playing' : 'Choose your nation first', onclick: () => client.start() }, 'Start game') : null,
+          !running && host ? h('button', { class: 'btn primary', title: 'Everyone in the room goes to the map and chooses a nation', onclick: () => client.start() }, 'Start game') : null,
           !running && !host ? h('span', { class: 'dim' }, 'Waiting for the host to start the game…') : null,
-          running ? h('button', { class: 'btn primary', disabled: !me?.nation, title: me?.nation ? '' : 'Choose your nation first', onclick: () => enter(room) }, 'Enter game') : null,
+          running ? h('button', { class: 'btn primary', onclick: () => enter(room) }, 'Enter game') : null,
           copy,
           h('button', { class: 'btn', onclick: () => { client.leave(); } }, 'Leave room'),
         ),
@@ -105,6 +97,20 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
   // built once and kept: the list refreshes on its own, so typing in the forms is never lost
   let lobby: HTMLElement | null = null;
   const listBox = h('div', { class: 'mp-list' });
+  const mineBox = h('section', { class: 'cx-card mp-mine', style: 'display:none' });
+  const renderMine = () => {
+    mineBox.style.display = mine.length ? '' : 'none';
+    fill(mineBox, h('h2', null, 'Your games'),
+      h('ul', { class: 'mp-rooms' }, ...mine.map((r) => {
+        const myNation = r.players.find((p) => p.userId === client.userId)?.nation;
+        const nation = myNation ? getScenario(r.scenarioId)?.nations.find((n) => n.id === myNation) : null;
+        return h('li', null,
+          h('div', null, h('strong', null, r.name), h('span', { class: 'dim' }, `${ERA(r.scenarioId)}${nation ? ` · you lead ${nation.shortName ?? nation.name}` : ''} · code ${r.code}`)),
+          h('span', { class: 'mp-count' }, `${r.players.filter((p) => p.connected).length}/${r.players.length} on`),
+          h('span', { class: 'dim' }, r.status === 'lobby' ? 'Waiting' : r.status === 'paused' ? 'Paused' : 'In progress'),
+          h('button', { class: 'btn primary', onclick: () => client.join(r.id) }, 'Rejoin'));
+      })));
+  };
   const formBox = h('div');
   const renderList = () => fill(listBox, rooms.length
       ? h('ul', { class: 'mp-rooms' }, ...rooms.map((r) => h('li', null,
@@ -115,6 +121,7 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
       : h('p', { class: 'empty' }, 'No public rooms right now. Create one!'));
   const renderLobby = () => {
     renderList();
+    renderMine();
     fill(formBox, creating ? createForm(currentUser()?.username ?? 'My') : null);
     if (lobby && lobby.parentElement === body) return;
     const code = h('input', { class: 'mp-input', placeholder: 'ABCDEF', maxlength: '6', 'aria-label': 'Room code' }) as HTMLInputElement;
@@ -122,6 +129,7 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
     const joinCode = () => { if (code.value.length >= 6) client.join(code.value); };
     code.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinCode(); });
     lobby = h('div', { class: 'mp-grid' },
+      mineBox,
       h('section', { class: 'cx-card' },
         h('h2', null, 'Public rooms'),
         listBox,
@@ -185,9 +193,10 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
     if (client.online && !client.room) client.list();
   }));
   offs.push(client.on('rooms', (r) => { rooms = r; if (!client.room) renderList(); }));
+  offs.push(client.on('mine', (r) => { mine = r; if (!client.room) renderMine(); }));
   offs.push(client.on('room', () => { error.textContent = ''; render(); }));
   offs.push(client.on('error', showError));
-  offs.push(client.on('begin', (room) => { if (room.players.some((p) => p.userId === client.userId && p.nation)) enter(room); }));
+  offs.push(client.on('begin', (room) => enter(room)));
   const poll = window.setInterval(() => { if (client.online && !client.room) client.list(); }, 6000);
 
   // an invite link: ?room=CODE

@@ -216,7 +216,7 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   if (online) session.online = true;
   hud = new Hud(root, store, map, scenario, renderer, loop, session, go.load);
   if (onlineHud) hud.setOnline(onlineHud);
-  if (!store.state.playerNation && !online) root.append(new NationPicker(store, scenario, renderer).el);
+  if (!store.state.playerNation && !readOnly) root.append(new NationPicker(store, scenario, renderer, onlineHud).el);
   new EndScreen(store, () => void session.quitToMenu(), go.newGame);
   setErrorContext(() => ({ scenarioId: scenario.id, date: formatDate(store.state.clock), nation: store.state.playerNation, spectating: readOnly }));
   trackPlayStats(store, scenario);
