@@ -2,6 +2,7 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { allied, atWar, friendly, getRelation } from '../core/queries';
 import type { GameState, NationId } from '../core/types';
 import { hexToNum, lighten, mix, type Theme } from '../ui/themes';
+import { buildInfra, type InfraItem } from './infraIcons';
 import type { World } from '../core/world';
 import { ArmyLayer } from './ArmyLayer';
 import { Camera } from './camera';
@@ -53,6 +54,10 @@ export class MapRenderer {
   /** Resources map mode: a marker on every deposit (ringed white when it is worked). */
   private resourceLayer = new Graphics();
   private resourceKey = '';
+  /** Buildings and work under way (see infraIcons.ts), by province. */
+  private infraLayer = new Container();
+  private infra = new Map<string, { c: Container; item: InfraItem }>();
+  private infraKey = '';
   private nationLabelLayer = new Container();
   private provinceLabelLayer = new Container();
 
@@ -120,7 +125,7 @@ export class MapRenderer {
     this.app.stage.addChild(this.world);
     this.world.addChild(
       this.graticule, this.shore, this.shadow, this.land, this.fills, this.provinceBorders, this.coast, this.nationBorders,
-      this.overlay, this.capitalLayer, this.resourceLayer, this.nationLabelLayer, this.provinceLabelLayer,
+      this.overlay, this.capitalLayer, this.resourceLayer, this.nationLabelLayer, this.provinceLabelLayer, this.infraLayer,
     );
     this.resourceLayer.visible = false;
     this.armies = new ArmyLayer(this.sim, this.theme, this.camera);
@@ -176,6 +181,30 @@ export class MapRenderer {
     if (this.mapMode === 'resources') { this.map.provinces.forEach((_, i) => this.applyTint(i)); this.needsRender = true; }
   }
 
+  /** Buildings and work under way to draw (rebuilt only when something changed). */
+  setInfrastructure(items: InfraItem[]) {
+    const key = JSON.stringify(items);
+    if (key === this.infraKey) return;
+    this.infraKey = key;
+    const keep = new Set(items.map((i) => i.province));
+    for (const [id, v] of this.infra) if (!keep.has(id)) { v.c.destroy({ children: true }); this.infra.delete(id); }
+    const accent = this.theme.map.selection;
+    for (const item of items) {
+      const old = this.infra.get(item.province);
+      if (old && JSON.stringify(old.item) === JSON.stringify(item)) continue;
+      old?.c.destroy({ children: true });
+      const p = this.map.byId.get(item.province);
+      if (!p) continue;
+      const c = buildInfra(item, accent);
+      c.visible = false; // shown by updateLabels (zoom, selection)
+      c.position.set(p.label[0], p.label[1]);
+      this.infraLayer.addChild(c);
+      this.infra.set(item.province, { c, item });
+    }
+    this.nationLabelZoom = 0; // place them on the next frame
+    this.needsRender = true;
+  }
+
   /** Deposits to mark in the resources map mode: [province id, colour, worked by a mine/farm/factory]. */
   setResourceMarks(marks: [string, string, boolean][]) {
     const key = marks.map((m) => m[0] + (m[2] ? '+' : '')).join(',');
@@ -206,6 +235,7 @@ export class MapRenderer {
     const idx = id ? this.map.byId.get(id)?.index ?? null : null;
     if (idx === this.selected) return;
     this.selected = idx;
+    this.nationLabelZoom = 0; // a selected province shows its buildings at any zoom
     this.dirtyOverlay = true;
     this.needsRender = true;
   }
@@ -503,6 +533,16 @@ export class MapRenderer {
     for (const c of this.capitalLayer.children) {
       c.scale.set(inv);
       c.visible = z > 0.6 || c.label === 'capital-major';
+    }
+    // buildings: when zoomed in (or the province is selected); your own work under way from further out
+    const selectedId = this.selected !== null ? this.map.provinces[this.selected]?.id : null;
+    for (const [id, { c, item }] of this.infra) {
+      c.scale.set(inv);
+      // just under the province's name
+      const p = this.map.byId.get(id)!;
+      c.position.set(p.label[0], p.label[1] + 16 * inv);
+      const inView = p.label[0] > x0 - pad && p.label[0] < x1 + pad && p.label[1] > y0 - pad && p.label[1] < y1 + pad;
+      c.visible = inView && (id === selectedId || z > 2.4 || (item.own && !!item.project && z > 0.9));
     }
 
     // Greedy collision: bigger labels claim screen space first, overlapping smaller ones hide.

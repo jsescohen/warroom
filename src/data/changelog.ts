@@ -12,6 +12,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.7.2',
+    date: '2026-10-09',
+    title: 'Building takes time, and you can see it',
+    items: [
+      { title: 'Work takes time', how: 'Buildings (10 to 30 days), developing a province (20 to 40 days) and training troops (about 12 days) now take time. Troops train fastest at the capital (60% of the time) and quicker in big cities, and come out at full strength. Troops in training count towards your manpower.' },
+      { title: 'See it on the map', how: 'A ring fills around an icon on the province while the work goes on, with the days left. Zoom in to see everyone’s buildings: oil derricks, pickaxes for mines, wheat for farms, factories, barracks tents, airfields, fortresses and radar dishes, with what your own provinces make (“+4 oil”). Select a province to see them at any zoom.' },
+      { title: 'In the province panel', how: '“Under way” lists what is being built or trained there, with a progress bar and the days left.' },
+    ],
+  },
+  {
     version: '0.7.1',
     date: '2026-10-09',
     title: 'Your resources at a glance',

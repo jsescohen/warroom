@@ -52,6 +52,18 @@ export interface Nation {
 
 export type BuildingId = 'barracks' | 'airfield' | 'fort' | 'mine' | 'farm' | 'factory' | 'airdefense';
 
+/** Work that takes time: a building, a level of development, or troops in training. */
+export interface Project {
+  id: string;
+  nation: NationId;
+  province: ProvinceId;
+  kind: 'build' | 'develop' | 'recruit';
+  /** The building or unit type (the new level for development). */
+  what: string;
+  startAt: number;
+  doneAt: number;
+}
+
 export interface ProvinceState {
   owner: NationId;
   /** Nation that held the province at the start: it will want it back. */
@@ -253,6 +265,8 @@ export interface GameState {
     /** 'detailed' adds resource stockpiles, consumption and shortages. Missing = simple. */
     economy?: EconomyMode;
   };
+  /** Buildings going up, provinces being developed, troops in training: done at `doneAt`. */
+  projects?: Project[];
   /** World market: how far buying (+) and selling (-) have pushed each resource's price. */
   market?: Record<string, number>;
   /** Weekly territory and strength of the great powers, for the ledger (see core/history.ts). */

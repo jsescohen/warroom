@@ -49,7 +49,8 @@ const SECTIONS: Section[] = [
     items: [
       ['Income', 'Paid at the start of each month: taxes from your land and people. Developed and populous provinces pay more; distant colonies less.'],
       ['Upkeep', 'Every army costs money each month, stronger units more. If the treasury runs dry, unpaid troops desert.'],
-      ['Recruiting', 'Select a province with barracks (an airfield for aircraft) and pick a unit. The capital trains best (troops start at 70% strength, 15% cheaper), big cities well, towns at 40%; small provinces raise only basic troops until developed.'],
+      ['Recruiting', 'Select a province with barracks (an airfield for aircraft) and pick a unit. Troops train for about 12 days and then appear at full strength: fastest at the capital (60% of the time, 15% cheaper), quicker in big cities; small provinces raise only basic troops until developed.'],
+      ['Work takes time', 'Buildings take 10 to 30 days, development 20 to 40. A ring fills around the icon on the province while it goes on, with the days left; the province panel lists it under “Under way”. Zoom in to see everyone’s buildings on the map.'],
       ['Materials', 'Most units cost materials too: steel, oil and rubber for tanks, horses for cavalry, iron for legions… Basic infantry only needs food. The cost shows on each recruit button.'],
       ['Resources', 'Some provinces hold a resource, where it really was found (Resources map mode, M). By itself a province makes 1 a month; build its mine, oil wells, farm or factory to make 4.'],
       ['Stockpiles', 'Each resource is stored up to 80. What you make beyond that is sold on the world market at the end of the month.'],

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reduce, validate, type Action } from './actions';
-import { budgetOf, importsOf, initEconomy, manpowerCap, marketPrice, marketQuote, provinceOutput, recruitCost, recruitSite, armyCount } from './economy';
+import { budgetOf, importsOf, inTraining, initEconomy, manpowerCap, marketPrice, marketQuote, projectsTick, provinceOutput, recruitCost, recruitSite, trainDays, armyCount } from './economy';
 import { garrisonMax } from './military';
 import { byName, fresh, world } from './fixture.test-util';
 import { setOwner } from './military';
@@ -14,6 +14,11 @@ const tick = (s: GameState, n: number) => {
 };
 const id = (name: string) => byName(name).id;
 const rich = (s: GameState, n: string, treasury = 500): GameState => ({ ...s, nations: { ...s.nations, [n]: { ...s.nations[n], treasury } } });
+/** Lets all work under way finish (buildings, development, training). */
+const finish = (s: GameState): GameState => {
+  const until = Math.max(s.clock.hours, ...(s.projects ?? []).map((x) => x.doneAt));
+  return projectsTick({ ...s, clock: { ...s.clock, hours: until } }, world, (x) => x);
+};
 
 describe('economy', () => {
   it('starts every nation with money and barracks at its capital', () => {
@@ -26,16 +31,22 @@ describe('economy', () => {
     expect(Object.values(world.provinces).some((p) => p.resource === 'oil')).toBe(true);
   });
 
-  it('recruits at a barracks for money; troops start under strength', () => {
+  it('recruits at a barracks for money; troops train for some days first (faster at the capital)', () => {
     let s = rich(act(fresh(), { type: 'chooseNation', nation: 'FRA' }, 'FRA'), 'FRA');
     const paris = id('Paris');
     const before = armyCount(s, world, 'FRA');
     const cost = recruitCost(s, world, 'FRA', 'infantry', undefined, paris);
     s = act(s, { type: 'recruit', province: paris, unitType: 'infantry' }, 'FRA');
-    expect(armyCount(s, world, 'FRA')).toBe(before + 1);
     expect(s.nations.FRA.treasury).toBe(500 - cost);
-    const recruit = s.armies[`a${s.nextId - 1}`];
-    expect(recruit.strength).toBeLessThan(recruit.maxStrength);
+    // in training: paid, counted against manpower, not on the map yet
+    expect(armyCount(s, world, 'FRA')).toBe(before);
+    expect(inTraining(s, 'FRA')).toBe(1);
+    expect(trainDays(s, world, paris, 'infantry')).toBeLessThan(12);
+    s = finish(s);
+    expect(armyCount(s, world, 'FRA')).toBe(before + 1);
+    expect(inTraining(s, 'FRA')).toBe(0);
+    const recruit = Object.values(s.armies).find((a) => a.owner === 'FRA' && a.location === paris && a.id === `a${s.nextId - 1}`)!;
+    expect(recruit.strength).toBe(recruit.maxStrength);
     // no barracks, no airfield, no money: refused
     const lyon = Object.keys(s.provinces).find((p) => s.provinces[p].owner === 'FRA' && !s.provinces[p].build)!;
     expect(validate(s, { action: { type: 'recruit', province: lyon, unitType: 'infantry' }, actor: 'FRA' }, world)).toMatch(/barracks/);
@@ -63,6 +74,9 @@ describe('economy', () => {
     expect(provinceOutput(s, world, field)).toBe(1);
     expect(validate(s, { action: { type: 'build', province: field, building: 'farm' }, actor: 'ROM' }, world)).toMatch(/needs a mine/);
     s = act(s, { type: 'build', province: field, building: 'mine' }, 'ROM');
+    expect(provinceOutput(s, world, field)).toBe(1); // still being built
+    expect(validate(s, { action: { type: 'build', province: field, building: 'mine' }, actor: 'ROM' }, world)).toMatch(/being built/);
+    s = finish(s);
     expect(provinceOutput(s, world, field)).toBe(4);
   });
 
@@ -82,7 +96,9 @@ describe('economy', () => {
     const town = Object.keys(s.provinces).find((p) => s.provinces[p].owner === 'FRA' && !s.provinces[p].build && recruitSite(s, world, p).basicOnly)!;
     const pop = popOf(s, world, town), g = garrisonMax(s, town);
     s = act(s, { type: 'develop', province: town }, 'FRA');
-    s = act(s, { type: 'develop', province: town }, 'FRA');
+    expect(validate(s, { action: { type: 'develop', province: town }, actor: 'FRA' }, world)).toMatch(/Already/);
+    s = finish(s);
+    s = finish(act(s, { type: 'develop', province: town }, 'FRA'));
     expect(s.provinces[town].level).toBe(2);
     expect(popOf(s, world, town)).toBeGreaterThan(pop);
     expect(garrisonMax(s, town)).toBeGreaterThan(g);
@@ -91,12 +107,14 @@ describe('economy', () => {
   it('builds for money and caps armies at the manpower limit', () => {
     let s = rich(act(fresh(), { type: 'chooseNation', nation: 'FRA' }, 'FRA'), 'FRA');
     const lyon = Object.keys(s.provinces).find((p) => s.provinces[p].owner === 'FRA' && !s.provinces[p].build)!;
-    s = act(s, { type: 'build', province: lyon, building: 'barracks' }, 'FRA');
+    s = finish(act(s, { type: 'build', province: lyon, building: 'barracks' }, 'FRA'));
     expect(s.provinces[lyon].build).toEqual(['barracks']);
     expect(validate(s, { action: { type: 'build', province: lyon, building: 'barracks' }, actor: 'FRA' }, world)).toMatch(/already/);
     s = rich(s, 'FRA', 1e6);
+    s = { ...s, nations: { ...s.nations, FRA: { ...s.nations.FRA, stock: { ...s.nations.FRA.stock, food: 1000 } } } };
     const cap = manpowerCap(s, world, 'FRA');
-    while (armyCount(s, world, 'FRA') < cap) s = act(s, { type: 'recruit', province: lyon, unitType: 'infantry' }, 'FRA');
+    for (let i = 0; i < 100 && armyCount(s, world, 'FRA') + inTraining(s, 'FRA') < cap; i++) s = act(s, { type: 'recruit', province: lyon, unitType: 'infantry' }, 'FRA');
+    expect(armyCount(s, world, 'FRA') + inTraining(s, 'FRA')).toBe(cap);
     expect(validate(s, { action: { type: 'recruit', province: lyon, unitType: 'infantry' }, actor: 'FRA' }, world)).toMatch(/manpower/);
   });
 

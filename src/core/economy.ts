@@ -1,7 +1,7 @@
 import { armyCap, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
 import { basePop, POP_FLOOR, popRatio } from './population';
 import { atWar, provincesOf } from './queries';
-import { humansOf, isHuman, type Army, type BuildingId, type GameEvent, type GameState, type NationId, type ProvinceId, type Treaty } from './types';
+import { humansOf, isHuman, type Army, type BuildingId, type GameEvent, type GameState, type NationId, type Project, type ProvinceId, type Treaty } from './types';
 import type { World } from './world';
 
 /**
@@ -39,16 +39,24 @@ const POP_REGROWTH = 0.02;
 export const DEVELOP_GOLD = [0, 20, 35, 55];
 export const MAX_LEVEL = 3;
 
-export interface BuildingDef { name: string; cost: number; text: string }
+export interface BuildingDef { name: string; cost: number; text: string; /** days to build */ days: number }
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
-  barracks: { name: 'Barracks', cost: 25, text: 'Recruits land armies here.' },
-  airfield: { name: 'Airfield', cost: 30, text: 'Recruits air units here.' },
-  fort: { name: 'Fortress', cost: 20, text: 'The province garrison is half as strong again.' },
-  mine: { name: 'Mine', cost: 20, text: `Extracts the province's resource: ${PRODUCE_EXTRACTED} a month instead of ${PRODUCE_BASE}.` },
-  farm: { name: 'Farm', cost: 15, text: `Works the province's land: ${PRODUCE_EXTRACTED} of its resource a month instead of ${PRODUCE_BASE}.` },
-  factory: { name: 'Factory', cost: 30, text: `Manufactures the province's resource: ${PRODUCE_EXTRACTED} a month instead of ${PRODUCE_BASE}.` },
-  airdefense: { name: 'Air defence', cost: 40, text: 'Shoots down missiles and blunts air strikes on this province and its neighbours.' },
+  barracks: { name: 'Barracks', cost: 25, days: 14, text: 'Recruits land armies here.' },
+  airfield: { name: 'Airfield', cost: 30, days: 21, text: 'Recruits air units here.' },
+  fort: { name: 'Fortress', cost: 20, days: 20, text: 'The province garrison is half as strong again.' },
+  mine: { name: 'Mine', cost: 20, days: 20, text: `Extracts the province's resource: ${PRODUCE_EXTRACTED} a month instead of ${PRODUCE_BASE}.` },
+  farm: { name: 'Farm', cost: 15, days: 10, text: `Works the province's land: ${PRODUCE_EXTRACTED} of its resource a month instead of ${PRODUCE_BASE}.` },
+  factory: { name: 'Factory', cost: 30, days: 30, text: `Manufactures the province's resource: ${PRODUCE_EXTRACTED} a month instead of ${PRODUCE_BASE}.` },
+  airdefense: { name: 'Air defence', cost: 40, days: 14, text: 'Shoots down missiles and blunts air strikes on this province and its neighbours.' },
 };
+/** Days to train a basic army (stronger units take longer, good sites less: see recruitSite). */
+export const TRAIN_DAYS = 12;
+/** Days to develop a province to a level: 20, 30, 40. */
+export const developDays = (level: number) => 10 + 10 * level;
+
+export const projectsOf = (s: GameState, n: NationId, p?: ProvinceId) => (s.projects ?? []).filter((x) => x.nation === n && (!p || x.province === p));
+/** Armies a nation has in training. */
+export const inTraining = (s: GameState, n: NationId) => (s.projects ?? []).filter((x) => x.nation === n && x.kind === 'recruit').length;
 
 /** The building name for a resource (a mine of oil is an oil well; a farm of horses a stud). */
 export function extractName(world: World, p: ProvinceId): string {
@@ -230,8 +238,8 @@ export function applyMarket(s: GameState, world: World, n: NationId, r: string, 
 export const basicUnit = (world: World) => Object.values(world.unitTypes).find((u) => u.domain !== 'sea' && !u.strike)?.id ?? '';
 
 export interface RecruitSite {
-  /** Share of full strength new troops start at (they train up to full). */
-  start: number;
+  /** Multiplier on the training time. */
+  time: number;
   /** Multiplier on the price. */
   cost: number;
   /** Only basic troops can be raised here. */
@@ -245,11 +253,16 @@ export interface RecruitSite {
  */
 export function recruitSite(s: GameState, world: World, p: ProvinceId): RecruitSite {
   const ps = s.provinces[p];
-  if (ps && s.nations[ps.owner]?.capital === p) return { start: 0.7, cost: 0.85, basicOnly: false, label: 'Capital: troops start at 70% strength and cost 15% less' };
+  if (ps && s.nations[ps.owner]?.capital === p) return { time: 0.6, cost: 0.85, basicOnly: false, label: 'Capital: troops train fastest (60% of the time) and cost 15% less' };
   const w = provinceWeight(world, p) * popRatio(s, world, p) + 0.12 * (ps?.level ?? 0);
-  if (w >= 0.8) return { start: 0.55, cost: 0.95, basicOnly: false, label: 'Big city: troops start at 55% strength and cost 5% less' };
-  if (w >= 0.6) return { start: RECRUIT_STRENGTH, cost: 1, basicOnly: false, label: `Town: troops start at ${RECRUIT_STRENGTH * 100}% strength` };
-  return { start: RECRUIT_STRENGTH, cost: 1, basicOnly: true, label: 'Small province: basic troops only (develop it to raise others)' };
+  if (w >= 0.8) return { time: 0.8, cost: 0.95, basicOnly: false, label: 'Big city: troops train faster (80% of the time) and cost 5% less' };
+  if (w >= 0.6) return { time: 1, cost: 1, basicOnly: false, label: 'Town: troops train in the normal time' };
+  return { time: 1, cost: 1, basicOnly: true, label: 'Small province: basic troops only (develop it to raise others)' };
+}
+
+/** Days a unit takes to train here. */
+export function trainDays(s: GameState, world: World, p: ProvinceId, unitType: string): number {
+  return Math.max(3, Math.round(TRAIN_DAYS * unitFactor(world, unitType) * recruitSite(s, world, p).time));
 }
 
 export function recruitCost(s: GameState, world: World, _n: NationId, unitType: string, _access?: unknown, p?: ProvinceId): number {
@@ -313,7 +326,7 @@ export function recruitError(s: GameState, world: World, n: NationId, p: Provinc
   if (hostileHere(s, world, n, p)) return 'The enemy is in this province';
   if ((s.provinces[p].falloutUntil ?? 0) > s.clock.hours) return 'Nobody can be raised in a poisoned province';
   if (!u.strike && unitType !== basicUnit(world) && recruitSite(s, world, p).basicOnly) return `This small province can only raise ${world.unitTypes[basicUnit(world)]?.name ?? 'basic troops'}`;
-  if (armyCount(s, world, n) >= manpowerCap(s, world, n)) return `No manpower left: ${armyCount(s, world, n)} of ${manpowerCap(s, world, n)} armies raised. Take more land to raise more.`;
+  if (armyCount(s, world, n) + inTraining(s, n) >= manpowerCap(s, world, n)) return `No manpower left: ${armyCount(s, world, n) + inTraining(s, n)} of ${manpowerCap(s, world, n)} armies raised or in training. Take more land to raise more.`;
   const lack = shortfall(s, world, n, materialsOf(world, unitType));
   if (lack) return `Needs ${lack}: build a mine or farm, trade, or buy on the market`;
   const cost = recruitCost(s, world, n, unitType, undefined, p);
@@ -321,11 +334,17 @@ export function recruitError(s: GameState, world: World, n: NationId, p: Provinc
   return null;
 }
 
+/** Starts a piece of work: it is paid now and done in `days`. */
+function startProject(s: GameState, n: NationId, p: ProvinceId, kind: Project['kind'], what: string, days: number): GameState {
+  const project: Project = { id: `w${s.nextId}`, nation: n, province: p, kind, what, startAt: s.clock.hours, doneAt: s.clock.hours + days * 24 };
+  return { ...s, projects: [...(s.projects ?? []), project], nextId: s.nextId + 1 };
+}
+
 export function applyRecruit(s: GameState, world: World, n: NationId, p: ProvinceId, unitType: string): GameState {
   const cost = recruitCost(s, world, n, unitType, undefined, p);
   const nation = s.nations[n];
   const next: GameState = { ...s, nations: { ...s.nations, [n]: { ...nation, treasury: (nation.treasury ?? 0) - cost, stock: pay(nation.stock, materialsOf(world, unitType)) } } };
-  return raiseUnitOfType(next, world, n, p, unitType, BASE_STRENGTH * recruitSite(s, world, p).start, BASE_STRENGTH);
+  return startProject(next, n, p, 'recruit', unitType, trainDays(s, world, p, unitType));
 }
 
 /** Materials a building needs besides money (air defence, in the eras that have it). */
@@ -348,6 +367,7 @@ export function buildError(s: GameState, world: World, n: NationId, p: ProvinceI
     if (r.extract !== b) return `${r.name} needs a ${BUILDINGS[r.extract].name.toLowerCase()}, not a ${def.name.toLowerCase()}`;
   }
   if (s.provinces[p].build?.includes(b)) return `There is already a ${def.name.toLowerCase()} here`;
+  if ((s.projects ?? []).some((x) => x.province === p && x.kind === 'build' && x.what === b)) return `A ${def.name.toLowerCase()} is already being built here`;
   if (hostileHere(s, world, n, p)) return 'The enemy is in this province';
   if ((s.nations[n].treasury ?? 0) < def.cost) return `Costs ${def.cost}: the treasury holds ${Math.floor(s.nations[n].treasury ?? 0)}`;
   const lack = shortfall(s, world, n, buildingMaterials(world, b));
@@ -357,12 +377,8 @@ export function buildError(s: GameState, world: World, n: NationId, p: ProvinceI
 
 export function applyBuild(s: GameState, world: World, n: NationId, p: ProvinceId, b: BuildingId): GameState {
   const nation = s.nations[n];
-  const ps = s.provinces[p];
-  return {
-    ...s,
-    nations: { ...s.nations, [n]: { ...nation, treasury: (nation.treasury ?? 0) - BUILDINGS[b].cost, stock: pay(nation.stock, buildingMaterials(world, b)) } },
-    provinces: { ...s.provinces, [p]: { ...ps, build: [...(ps.build ?? []), b] } },
-  };
+  const paid: GameState = { ...s, nations: { ...s.nations, [n]: { ...nation, treasury: (nation.treasury ?? 0) - BUILDINGS[b].cost, stock: pay(nation.stock, buildingMaterials(world, b)) } } };
+  return startProject(paid, n, p, 'build', b, BUILDINGS[b].days);
 }
 
 /** Money and materials to develop a province to its next level. */
@@ -376,6 +392,7 @@ export function developError(s: GameState, world: World, n: NationId, p: Provinc
   if (!s.nations[n]?.alive) return 'Unknown nation';
   if (ps?.owner !== n) return 'You can only develop your own provinces';
   if ((ps.level ?? 0) >= MAX_LEVEL) return 'Fully developed';
+  if ((s.projects ?? []).some((x) => x.province === p && x.kind === 'develop')) return 'Already being developed';
   if (hostileHere(s, world, n, p) || ps.siege) return 'Not while the enemy is here';
   if ((ps.falloutUntil ?? 0) > s.clock.hours) return 'Nobody can build in a poisoned province';
   const { gold, materials } = developCost(s, world, p);
@@ -387,12 +404,50 @@ export function developError(s: GameState, world: World, n: NationId, p: Provinc
 export function applyDevelop(s: GameState, world: World, n: NationId, p: ProvinceId): GameState {
   const { gold, materials } = developCost(s, world, p);
   const nation = s.nations[n];
-  const ps = s.provinces[p];
-  return {
-    ...s,
-    nations: { ...s.nations, [n]: { ...nation, treasury: (nation.treasury ?? 0) - gold, stock: pay(nation.stock, materials) } },
-    provinces: { ...s.provinces, [p]: { ...ps, level: (ps.level ?? 0) + 1 } },
-  };
+  const level = (s.provinces[p].level ?? 0) + 1;
+  const paid: GameState = { ...s, nations: { ...s.nations, [n]: { ...nation, treasury: (nation.treasury ?? 0) - gold, stock: pay(nation.stock, materials) } } };
+  return startProject(paid, n, p, 'develop', String(level), developDays(level));
+}
+
+/**
+ * Finishes the work that is due: buildings stand, provinces reach their new level, troops leave
+ * their barracks at full strength. Work in a province that changed hands is lost.
+ */
+export function projectsTick(state: GameState, world: World, log: Logger): GameState {
+  const all = state.projects;
+  if (!all?.length || !all.some((x) => x.doneAt <= state.clock.hours)) return state;
+  let s: GameState = { ...state, projects: all.filter((x) => x.doneAt > state.clock.hours) };
+  for (const x of all.filter((y) => y.doneAt <= state.clock.hours).sort((a, b) => a.doneAt - b.doneAt || (a.id < b.id ? -1 : 1))) {
+    const ps = s.provinces[x.province];
+    const where = world.provinces[x.province]?.name ?? x.province;
+    const human = isHuman(s, x.nation);
+    if (!ps || ps.owner !== x.nation || !s.nations[x.nation]?.alive) {
+      if (human) s = log(s, { kind: 'project', text: `Work at ${where} was lost with the province.`, nations: [x.nation] });
+      continue;
+    }
+    if (x.kind === 'build') {
+      const b = x.what as BuildingId;
+      if (!ps.build?.includes(b)) s = { ...s, provinces: { ...s.provinces, [x.province]: { ...ps, build: [...(ps.build ?? []), b] } } };
+      if (human) {
+        const r = world.resources[world.provinces[x.province]?.resource ?? ''];
+        const name = r && r.extract === b ? extractName(world, x.province) : BUILDINGS[b].name;
+        s = log(s, { kind: 'project', text: `${name} at ${where} ${r && r.extract === b ? `are working: ${PRODUCE_EXTRACTED} ${r.name.toLowerCase()} a month` : 'is ready'}.`, nations: [x.nation] });
+      }
+    } else if (x.kind === 'develop') {
+      s = { ...s, provinces: { ...s.provinces, [x.province]: { ...ps, level: Math.max(ps.level ?? 0, Number(x.what)) } } };
+      if (human) s = log(s, { kind: 'project', text: `${where} is developed to level ${x.what}.`, nations: [x.nation] });
+    } else {
+      // troops cannot muster where the enemy stands: they wait
+      if (Object.values(s.armies).some((a) => a.location === x.province && atWar(s, x.nation, a.owner))) {
+        s = { ...s, projects: [...(s.projects ?? []), { ...x, doneAt: s.clock.hours + 24 }] };
+        continue;
+      }
+      const before = s.nextId;
+      s = raiseUnitOfType(s, world, x.nation, x.province, x.what, BASE_STRENGTH, BASE_STRENGTH);
+      if (human) s = log(s, { kind: 'mobilize', text: `${s.armies[`a${before}`]?.name ?? 'New troops'} ${s.armies[`a${before}`] ? 'is' : 'are'} ready at ${where}.`, nations: [x.nation] });
+    }
+  }
+  return s;
 }
 
 // ---- setup --------------------------------------------------------------------------------------

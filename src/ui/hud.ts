@@ -22,6 +22,7 @@ import type { OnlineHud } from '../net/onlineGame';
 import type { WeaponKind } from '../core/weapons';
 import { confirmDialog } from './modal';
 import { budgetOf, marketPrice, resourceFlow, STOCK_CAP, usedBy } from '../core/economy';
+import { infraItems } from './infra';
 import { ALIGNMENT_COLORS, type MapMode, type MapRenderer } from '../map/MapRenderer';
 import { SYMBOL_NAMES, symbolOf } from '../map/unitIcons';
 import { fill, h, swatch } from './dom';
@@ -122,6 +123,14 @@ export class Hud {
     }));
     marks();
     store.subscribe((s, prev) => { if (s.provinces !== prev.provinces && this.mapMode === 'resources') marks(); });
+    // buildings and work under way on the map (refreshed daily, or when they change)
+    let infraDay = -1;
+    const infra = () => renderer.setInfrastructure(infraItems(this.state, store.world));
+    store.subscribe((s, prev) => {
+      const day = Math.floor(s.clock.hours / 24);
+      if (s.provinces !== prev.provinces || s.projects !== prev.projects || s.playerNation !== prev.playerNation || day !== infraDay) { infraDay = day; infra(); }
+    });
+    infra();
     this.renderModes = renderModes;
     renderModes();
     const zoom = h('div', { class: 'zoom-controls panel' },

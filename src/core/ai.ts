@@ -1,7 +1,7 @@
 import type { Command } from './actions';
 import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplomacy';
 import { addRelation, getRel } from './events';
-import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, producedBy, manpowerCap, recruitCost, recruitError, recruitSite, supportedArmies, upkeepOf, basicUnit, buildError, developError, marketQuote, materialsOf, usedBy } from './economy';
+import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, producedBy, manpowerCap, recruitCost, recruitError, recruitSite, inTraining, supportedArmies, upkeepOf, basicUnit, buildError, developError, marketQuote, materialsOf, usedBy } from './economy';
 import { launchError } from './weapons';
 import { BASE_STRENGTH, fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
@@ -504,7 +504,7 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
   }
 
   // 1) recruit: up to two units a week while under strength and the money lasts
-  for (let k = 0; k < 2 && armyCount(s, world, n) < target; k++) {
+  for (let k = 0; k < 2 && armyCount(s, world, n) + inTraining(s, n) < target; k++) {
     const nation = s.nations[n];
     const b = budgetOf(s, world, n);
     const counter = s.armyCounters[n] ?? 0;
@@ -514,7 +514,7 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
     for (const unit of [...new Set([wanted, base])]) {
       const kind: BuildingId = isAirUnit(world, unit) ? 'airfield' : 'barracks';
       // near the front, but a good site (capital, big city) is worth a longer march
-      const siteScore = (p: ProvinceId) => toFront(p) * (1.4 - recruitSite(s, world, p).start);
+      const siteScore = (p: ProvinceId) => toFront(p) * (0.4 + recruitSite(s, world, p).time);
       const sites = owned.filter((p) => s.provinces[p].build?.includes(kind)).sort((x, y) => siteScore(x) - siteScore(y) || (x < y ? -1 : 1));
       // keep a running budget: the new unit's upkeep must be affordable, or the treasury must carry
       // the deficit for half a year

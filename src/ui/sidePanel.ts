@@ -1,10 +1,10 @@
 import { mergeable } from '../core/actions';
 import { findPath, garrisonMax, garrisonOf, isFleet } from '../core/military';
 import { allied, armiesIn, atWar, enemiesOf, friendly, getRelation, provincesOf } from '../core/queries';
-import { BUILDINGS, budgetOf, buildError, buildingMaterials, developCost, developError, extractName, materialsOf, MAX_LEVEL, PRODUCE_EXTRACTED, provinceOutput, recruitableTypes, recruitCost, recruitError, recruitSite } from '../core/economy';
+import { BUILDINGS, budgetOf, buildError, buildingMaterials, developCost, developError, extractName, materialsOf, MAX_LEVEL, PRODUCE_EXTRACTED, projectsOf, provinceOutput, recruitableTypes, recruitCost, recruitError, recruitSite, trainDays } from '../core/economy';
 import { launchError, weaponDef, type WeaponKind } from '../core/weapons';
 import { basePop, formatPop, nationPop, popOf } from '../core/population';
-import type { Army, BuildingId, GameState, NationId } from '../core/types';
+import type { Army, BuildingId, GameState, NationId, Project } from '../core/types';
 import type { World } from '../core/world';
 import type { MapData } from '../map/mapData';
 import { fill, h, swatch } from './dom';
@@ -43,6 +43,14 @@ export interface PanelActions {
   build(province: string, building: BuildingId): void;
   develop(province: string): void;
   launch(weapon: WeaponKind, province: string): void;
+}
+
+/** What a piece of work is, in words: "Building oil wells", "Training Armored Corps". */
+export function projectLabel(world: World, x: Project): string {
+  if (x.kind === 'recruit') return `Training ${world.unitTypes[x.what]?.name ?? x.what}`;
+  if (x.kind === 'develop') return `Developing to level ${x.what}`;
+  const r = world.resources[world.provinces[x.province]?.resource ?? ''];
+  return `Building ${(r && r.extract === x.what ? extractName(world, x.province) : BUILDINGS[x.what as BuildingId]?.name ?? x.what).toLowerCase()}`;
 }
 
 /** "3 steel, 2 oil" */
@@ -212,6 +220,8 @@ export class SidePanel {
     if ((prov.falloutUntil ?? 0) > s.clock.hours) provRows.push(['Fallout', h('span', { class: 'danger-text' }, `Poisoned for ${Math.ceil((prov.falloutUntil! - s.clock.hours) / 24)} more days`)]);
     if (prov.build?.length) provRows.push(['Buildings', prov.build.map((b) => (b === res?.extract ? extractName(this.world, id) : BUILDINGS[b].name)).join(', ')]);
     if (player && owner.id === player && prov.build?.some((b) => b === 'barracks' || b === 'airfield')) provRows.push(['Recruiting', recruitSite(s, this.world, id).label]);
+    // work under way here (yours only: other nations' plans are not shown)
+    const work = player && owner.id === player ? projectsOf(s, player, id) : [];
     if (prov.siege) provRows.push(['Under siege', `${s.nations[prov.siege.by].shortName} — ${prov.siege.progress > 0 || g <= 0.05 ? `${Math.round(prov.siege.progress * 100)}%` : 'fighting the garrison'}`]);
 
     const here = armiesIn(s, id);
@@ -245,6 +255,13 @@ export class SidePanel {
     fill(this.info, 
       h('div', null, h('div', { class: 'eyebrow' }, 'Province'), h('h2', null, geo.name)),
       kv(provRows),
+      work.length ? h('div', null, h('div', { class: 'eyebrow' }, 'Under way'), h('ul', { class: 'work-list' }, ...work.map((x) => {
+        const total = Math.max(1, x.doneAt - x.startAt), left = Math.max(0, x.doneAt - s.clock.hours);
+        return h('li', null,
+          h('span', null, projectLabel(this.world, x)),
+          h('span', { class: 'dim' }, left >= 24 ? `${Math.ceil(left / 24)} days` : 'today'),
+          h('span', { class: 'bar' }, h('span', { style: `width:${Math.round((1 - left / total) * 100)}%;background:var(--accent)` })));
+      }))) : null,
       forces ? h('div', null, h('div', { class: 'eyebrow' }, 'Forces present'), forces) : null,
       h('div', null, h('div', { class: 'eyebrow' }, owner.major ? 'Great Power' : 'Nation'), h('h3', null, owner.name)),
       kv(nationRows),
@@ -260,7 +277,7 @@ export class SidePanel {
         if (!prov.build?.includes(where)) continue;
         const mats = billText(this.world, materialsOf(this.world, u));
         econ.push({ label: `${def.name} · ${recruitCost(s, this.world, player, u, undefined, id)}${mats ? ` + ${mats}` : ''}`, err: recruitError(s, this.world, player, id, u),
-          title: `Recruit a new ${def.name.toLowerCase()} here (attack ${def.attack}, defence ${def.defense}). It starts at ${Math.round(recruitSite(s, this.world, id).start * 100)}% strength and trains up.`,
+          title: `Recruit a new ${def.name.toLowerCase()} here (attack ${def.attack}, defence ${def.defense}). It trains for ${trainDays(s, this.world, id, u)} days here.`,
           run: () => this.act.recruit(id, u) });
       }
       for (const b of Object.keys(BUILDINGS) as BuildingId[]) {
