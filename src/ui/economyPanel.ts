@@ -51,10 +51,11 @@ export function openEconomy(store: GameStore, hooks: { focus(province: string): 
         h('td', { title: units.length ? `Used to raise: ${units.join(', ')}` : 'Sold for money' }, swatch(r.color), ' ', r.name, used.has(r.id) ? h('span', { class: 'dim small' }, ' · your army uses it') : null),
         h('td', { class: `num${short ? ' danger-text' : have < 5 && used.has(r.id) ? ' warn-text' : ''}` }, `${Math.floor(have)} / ${STOCK_CAP}${short ? ' (out)' : ''}`),
         h('td', { class: 'num' }, made ? `+${made}` : '—', via.length ? h('div', { class: 'dim small' }, `from ${via.join(', ')}`) : null),
-        h('td', { class: 'num' }, `${marketPrice(s, world, r.id).toFixed(1)}`),
+        h('td', { class: 'num' }, marketPrice(s, world, r.id).toFixed(1),
+          qty > 1 ? h('div', { class: 'dim small' }, `${qty} for ${marketQuote(s, world, r.id, qty)}`) : null),
         h('td', { class: 'mk-actions' },
-          h('button', { class: 'btn small', disabled: !!buyErr, title: buyErr ?? `Buy ${qty} for ${marketQuote(s, world, r.id, qty)}`, onclick: () => act({ type: 'market', resource: r.id, amount: qty }) }, `Buy ${qty}`),
-          h('button', { class: 'btn small', disabled: !!sellErr, title: sellErr ?? `Sell ${qty} for ${marketQuote(s, world, r.id, -qty)}`, onclick: () => act({ type: 'market', resource: r.id, amount: -qty }) }, `Sell ${qty}`)),
+          h('button', { class: 'btn small', disabled: !!buyErr, title: buyErr ?? `Buy ${qty} for ${marketQuote(s, world, r.id, qty)}`, onclick: () => act({ type: 'market', resource: r.id, amount: qty }) }, `Buy ${qty} · ${marketQuote(s, world, r.id, qty)}`),
+          h('button', { class: 'btn small', disabled: !!sellErr, title: sellErr ?? `Sell ${qty} for ${marketQuote(s, world, r.id, -qty)}`, onclick: () => act({ type: 'market', resource: r.id, amount: -qty }) }, `Sell ${qty} · ${marketQuote(s, world, r.id, -qty)}`)),
       );
     });
 
@@ -105,7 +106,7 @@ export function openEconomy(store: GameStore, hooks: { focus(province: string): 
 
       h('div', { class: 'mk-head' }, h('h3', null, 'Stockpiles and the world market'), h('div', { class: 'mk-qty' }, h('span', { class: 'dim small' }, 'Amount'), qtyBtn(1), qtyBtn(5), qtyBtn(20))),
       h('table', { class: 'data-table market' },
-        h('thead', null, h('tr', null, h('th', null, 'Resource'), h('th', { class: 'num' }, 'Stock'), h('th', { class: 'num' }, 'Made / month'), h('th', { class: 'num' }, 'Price'), h('th', null, ''))),
+        h('thead', null, h('tr', null, h('th', null, 'Resource'), h('th', { class: 'num' }, 'Stock'), h('th', { class: 'num' }, 'Made / month'), h('th', { class: 'num' }, 'Price each'), h('th', null, ''))),
         h('tbody', null, ...resRows)),
       h('p', { class: 'setting-hint' }, `Units, weapons and developing provinces cost materials. A province with a resource makes 1 a month, 4 with its mine, farm or factory (build it in the province). Prices rise as everyone buys and fall as they sell; selling pays ${Math.round(SELL_SHARE * 100)}% of the price. Storage holds ${STOCK_CAP}: the surplus is sold at the end of the month.${detailed ? ' Detailed economy: armies also use up their resources every month; run out and those units fight at three quarters strength.' : ''}`),
 
