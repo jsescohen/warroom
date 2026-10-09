@@ -222,7 +222,7 @@ async function startGame(root: HTMLElement, scenario: ScenarioDef, saved: GameSt
   trackPlayStats(store, scenario);
   new AchievementTracker(store, scenario, (a) => hud?.celebrate(a.name, a.description));
   // first new game: the walkthrough starts once a nation is chosen
-  if (!readOnly && !saved && !online && !getSettings().tutorialDone) {
+  if (!readOnly && !saved && !online && !getSettings().tutorialDone && !scenario.pandemic) {
     const startTutorial = () => {
       const t = new Tutorial(store, loop, () => hud!.currentSelection);
       hud!.onSelectionChange = () => t.check();

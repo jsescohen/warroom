@@ -94,6 +94,19 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'pandemic', label: 'Pandemic',
+    intro: 'The Pandemic era: today’s world, and a new virus. There are no wars. The enemy is the disease, and rivals may have to work together.',
+    items: [
+      ['Setting it up', 'When you choose your nation, name the disease, pick how dangerous it is (Mild, Serious or Deadly) and where it breaks out (abroad, anywhere or at home).'],
+      ['How it spreads', 'Inside a province from person to person, to neighbouring provinces over land and sea, and by air between big cities. The Outbreak map shows it: your own land, your allies’ and research partners’ in full; elsewhere only outbreaks big enough to make the news.'],
+      ['Measures', 'Open the pandemic window (the ☣ counter at the top, or P). A partial or full lockdown slows the spread but costs money, food and protective gear. Closing the borders stops most travellers but angers your neighbours; guard troops in a border province stop more. Quarantine a province from its panel.'],
+      ['Hospitals and labs', 'Build them in a province’s panel. Hospitals cut the deaths there by more than half. Labs research the cure (each uses a lab reagent a month).'],
+      ['The cure', 'Research reaches 100% faster with high funding, more labs and research pacts (propose one in Diplomacy): partners pool their work and share their trials and the cure. Lab trials need rare plant compounds and lab reagents; human trials need compounds and medicines. These materials replace oil and steel.'],
+      ['Helping others', 'Send money or supplies, or share the cure, from the pandemic window or "Help …" on a country. Friends are likelier to share with you.'],
+      ['Winning and losing', 'You win when you have the cure, 60% of your people are immune and the outbreak is over at home (or when the disease dies out everywhere). If half your people live where hospitals are overwhelmed (12% sick) for 14 days in a row, your health system collapses and you lose.'],
+    ],
+  },
+  {
     id: 'online', label: 'Multiplayer',
     intro: 'Play against other people on the same map: Multiplayer on the main menu. Every nation nobody picks is led by the AI, as usual.',
     items: [

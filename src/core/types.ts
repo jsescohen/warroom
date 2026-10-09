@@ -11,7 +11,7 @@ export type NationId = string;
 export type ProvinceId = string;
 export type ArmyId = string;
 
-export type EraId = 'bronze' | 'rome-rise' | 'rome-fall' | 'renaissance' | 'ww1' | 'ww2' | 'modern' | 'usa' | 'pangea';
+export type EraId = 'bronze' | 'rome-rise' | 'rome-fall' | 'renaissance' | 'ww1' | 'ww2' | 'modern' | 'usa' | 'pangea' | 'pandemic';
 
 /** Look-and-feel family used by the UI theme for each era. */
 export type ThemeId = 'parchment' | 'marble' | 'ornate' | 'sepia' | 'tactical';
@@ -48,9 +48,49 @@ export interface Nation {
   arsenal?: { missile?: number; nuke?: number };
   /** Clock hour the last nuclear weapon was built (they take a while). */
   nukeBuiltAt?: number;
+  /** Pandemic era: the nation's measures against the disease and its race for a cure. */
+  health?: HealthState;
 }
 
-export type BuildingId = 'barracks' | 'airfield' | 'fort' | 'mine' | 'farm' | 'factory' | 'airdefense';
+/** Pandemic era: how a nation fights the disease (see core/pandemic.ts). */
+export interface HealthState {
+  /** 0 none, 1 partial (masks, distancing, events cancelled), 2 full lockdown. */
+  lockdown?: 0 | 1 | 2;
+  /** Borders closed to travellers (trade still moves). */
+  borders?: boolean;
+  /** Research funding: 0 low, 1 normal (missing), 2 high. */
+  funding?: 0 | 1 | 2;
+  /** Progress towards a cure, 0..100. */
+  research?: number;
+  /** Trials passed: 1 lab trials, 2 human trials. */
+  trials?: number;
+  /** The nation has the cure and is vaccinating its people. */
+  cure?: boolean;
+  /** Days in a row the outbreak has overwhelmed the hospitals. */
+  overrun?: number;
+  /** People killed by the disease. */
+  deaths?: number;
+  /** Most people sick at once (share of the population). */
+  peak?: number;
+}
+
+export type Severity = 'mild' | 'serious' | 'deadly';
+
+/** Pandemic era: the disease itself. */
+export interface DiseaseState {
+  name: string;
+  severity: Severity;
+  /** Province where it broke out. */
+  origin: ProvinceId;
+  /** Clock hour the first cure was found. */
+  curedAt?: number;
+  /** Nations whose health system collapsed. */
+  fallen?: NationId[];
+  /** Clock hour the pandemic ended (no one sick anywhere). */
+  overAt?: number;
+}
+
+export type BuildingId = 'barracks' | 'airfield' | 'fort' | 'mine' | 'farm' | 'factory' | 'airdefense' | 'hospital' | 'lab';
 
 /** Work that takes time: a building, a level of development, or troops in training. */
 export interface Project {
@@ -82,6 +122,12 @@ export interface ProvinceState {
   falloutUntil?: number;
   /** Buildings: barracks and airfields recruit troops, forts strengthen the garrison. */
   build?: BuildingId[];
+  /** Pandemic era: share of the people sick right now (0..1). Missing = none. */
+  sick?: number;
+  /** Pandemic era: share recovered or vaccinated (immune). */
+  immune?: number;
+  /** Pandemic era: sealed off by its government (no travel in or out, no work). */
+  quarantine?: boolean;
 }
 
 export interface Army {
@@ -110,7 +156,7 @@ export interface War {
   startedAt: number; // clock hours
 }
 
-export type TreatyType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'trade';
+export type TreatyType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'trade' | 'research';
 
 /** A trade route: what each side supplies and the money that changes hands each month. */
 export interface TradeTerms {
@@ -133,7 +179,7 @@ export interface Treaty {
 
 // ---- diplomacy ----------------------------------------------------------------------------------
 
-export type AgreementType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'territory' | 'joint-war' | 'demand' | 'trade';
+export type AgreementType = 'alliance' | 'non-aggression' | 'ceasefire' | 'peace' | 'territory' | 'joint-war' | 'demand' | 'trade' | 'research';
 
 /** What is on the table. Provinces are always listed from the proposer's point of view. */
 export interface ProposalTerms {
@@ -269,6 +315,8 @@ export interface GameState {
   projects?: Project[];
   /** World market: how far buying (+) and selling (-) have pushed each resource's price. */
   market?: Record<string, number>;
+  /** Pandemic era: the disease (missing in every other era). */
+  disease?: DiseaseState;
   /** Weekly territory and strength of the great powers, for the ledger (see core/history.ts). */
   history?: History;
   winner: NationId | null;

@@ -1,6 +1,7 @@
 import { addGrievance, addRelation, getRel, logEvent, log } from './events';
 import { accessOf, needsOf, producedBy, usedBy } from './economy';
 import { setOwner } from './military';
+import { healthOf, nationHealth, pactPartners, worldSickShare } from './pandemic';
 import { allied, atWar, friendly, provincesOf } from './queries';
 import { formatShortDate } from './time';
 import { isHuman, relationKey, type AgreementType, type GameState, type NationId, type Proposal, type ProposalTerms, type ProvinceId, type Treaty } from './types';
@@ -23,7 +24,11 @@ export const AGREEMENT_LABEL: Record<AgreementType, string> = {
   'joint-war': 'Joint war',
   demand: 'Ultimatum',
   trade: 'Trade agreement',
+  research: 'Research pact',
 };
+
+/** Most research pacts a nation keeps at once. */
+export const MAX_PACTS = 5;
 
 /** Most money a trade agreement can move each month. */
 export const MAX_TRADE_GOLD = 30;
@@ -46,7 +51,14 @@ export function validateTerms(s: GameState, t: ProposalTerms): string | null {
   const war = atWar(s, t.from, t.to);
   const owns = (ids: ProvinceId[] | undefined, n: NationId) => (ids ?? []).every((p) => s.provinces[p]?.owner === n);
   const noCapital = (ids: ProvinceId[] | undefined) => !(ids ?? []).some((p) => s.nations[s.provinces[p]?.owner]?.capital === p);
+  if (s.disease && (t.type === 'joint-war' || t.type === 'demand')) return 'There are no wars in a pandemic: the enemy is the virus';
   switch (t.type) {
+    case 'research':
+      if (!s.disease) return 'Research pacts are for fighting a pandemic';
+      if (treatyBetween(s, t.from, t.to, 'research')) return 'Already in a research pact';
+      if (pactPartners(s, t.from).length >= MAX_PACTS) return `${name(t.from)} is already in ${MAX_PACTS} research pacts`;
+      if (pactPartners(s, t.to).length >= MAX_PACTS) return `${name(t.to)} is already in ${MAX_PACTS} research pacts`;
+      return null;
     case 'alliance':
       if (war) return `You are at war with ${name(t.to)}`;
       if (allied(s, t.from, t.to)) return 'Already allied';
@@ -111,6 +123,7 @@ export function describeTerms(s: GameState, world: World, t: ProposalTerms): str
         .filter(Boolean).join('; ') + '.';
     case 'demand': return `${n(t.from)} demands that ${n(t.to)} cede ${ps(t.take)}.`;
     case 'joint-war': return `${n(t.from)} and ${n(t.to)} go to war together against ${n(t.target!)}.`;
+    case 'research': return `${n(t.from)} and ${n(t.to)} pool their research on a cure and share what they know of their outbreaks. Lasts until either side ends it.`;
     case 'trade': {
       const r = (id?: string) => world.resources[id ?? '']?.name ?? id;
       const parts = [t.sell ? `${n(t.from)} supplies ${r(t.sell)}` : '', t.buy ? `${n(t.to)} supplies ${r(t.buy)}` : ''];
@@ -168,6 +181,10 @@ export function applyAgreement(state: GameState, world: World, p: Proposal): Gam
     case 'trade':
       s = { ...s, treaties: [...s.treaties, { id: `t${s.nextId}`, type: 'trade', parties: [from, to], signedAt: s.clock.hours, trade: { sell: p.sell, buy: p.buy, gold: p.gold ?? 0 } }], nextId: s.nextId + 1 };
       s = addRelation(s, from, to, 5);
+      break;
+    case 'research':
+      treaty('research');
+      s = addRelation(s, from, to, 10);
       break;
     case 'joint-war':
       for (const n of [from, to]) if (!atWar(s, n, p.target!)) s = declareWar(s, n, p.target!);
@@ -283,6 +300,17 @@ export function willingness(s: GameState, world: World, t: ProposalTerms, respon
       add(12, 'trade benefits both sides');
       break;
     }
+    case 'research': {
+      add(15, 'fighting the disease together');
+      const crisis = Math.min(35, Math.round(worldSickShare(s, world) * 700));
+      add(crisis, 'the pandemic is spreading');
+      const ours = nationHealth(s, world, responder);
+      add(Math.min(20, Math.round(ours.sickShare * 500)), 'our own outbreak');
+      if (s.nations[other]?.major) add(10, `${name(other)} has great labs`);
+      if (rel <= -50) add(-10, 'deep distrust');
+      if (pactPartners(s, responder).length >= 3) add(-15, 'already in several pacts');
+      break;
+    }
     case 'joint-war': {
       const target = t.target!;
       add(-getRel(s, responder, target) * 0.6, `feelings toward ${name(target)}`);
@@ -346,6 +374,20 @@ export function pickInitiative(s: GameState, world: World): Initiative | null {
     const theirPower = militaryPower(s, world, n);
     const borders = borderProvinces(s, world, n, player).length > 0;
     const terms = (type: AgreementType, extra: Partial<ProposalTerms> = {}): ProposalTerms => ({ type, from: n, to: player, ...extra });
+
+    // a pandemic: research pacts, calls for help, and the cure
+    if (s.disease) {
+      const name = s.disease.name;
+      const pact = terms('research');
+      if (!validateTerms(s, pact)) {
+        const w = willingness(s, world, pact, n);
+        if (w.score >= ACCEPT_LEAN) candidates.push({ score: w.score, init: { from: n, kind: 'offer', purpose: `${name} threatens every nation: propose a research pact to pool your work on a cure.`, terms: pact } });
+      }
+      const theirs = nationHealth(s, world, n);
+      if (theirs.sickShare >= 0.03 && rel >= 10) candidates.push({ score: 15 + rel, init: { from: n, kind: 'offer', purpose: `Your country is being overwhelmed by ${name}: ask them for help (medicines, protective gear or money).` } });
+      if (healthOf(s, player).cure && !healthOf(s, n).cure && rel >= -30) candidates.push({ score: 50 + rel, init: { from: n, kind: 'offer', purpose: `They have the cure for ${name} and you do not: ask them to share it with your people.` } });
+      continue;
+    }
 
     if (atWar(s, n, player)) {
       const w = willingness(s, world, terms('peace'), n);

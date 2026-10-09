@@ -12,6 +12,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.8',
+    date: '2026-10-09',
+    title: 'Pandemic',
+    items: [
+      { title: 'A new era: Pandemic', how: 'New game → Pandemic. Today’s world, and a new virus breaks out. There are no wars: you win by keeping your people alive and finding a cure. Name your disease, pick how dangerous it is and where it starts when you choose your nation.' },
+      { title: 'Fight it', how: 'Open the pandemic window with the ☣ counter at the top (or P): lockdowns, closing the borders, research funding, and help for other nations. Quarantine provinces and build hospitals and labs from a province’s panel. The Outbreak map shows where it is.' },
+      { title: 'Race for a cure', how: 'Labs research the cure, much faster in research pacts (propose one in Diplomacy): even old rivals can work together. The trials need new resources, rare plant compounds, lab reagents and medicines, instead of oil and steel. Whoever finds the cure can share it.' },
+      { title: 'Win or collapse', how: 'Come through with the cure and most of your people immune, or outlast the disease. If your hospitals stay overwhelmed for two weeks, your health system collapses. How to play has a new Pandemic page.' },
+    ],
+  },
+  {
     version: '0.7.3',
     date: '2026-10-09',
     title: 'A little quicker',

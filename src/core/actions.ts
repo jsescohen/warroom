@@ -3,9 +3,10 @@ import { addGrievance, addNote, addRelation, log, logEvent } from './events';
 import { applyStrike, armyName, canEnter, findPath, isFleet, setOwner, strikeError } from './military';
 import { simulateTick } from './sim';
 import { applyArm, applyLaunch, armError, launchError, type WeaponKind } from './weapons';
+import { aidError, applyAid, applyHealth, applyQuarantine, applyShareCure, customizeDisease, healthError, quarantineError, SEVERITIES, shareCureError } from './pandemic';
 import { formatShortDate } from './time';
 import { applyBuild, applyDevelop, applyMarket, applyRecruit, buildError, developError, initStocks, marketError, recruitError } from './economy';
-import { DIFFICULTIES, relationKey, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
+import { DIFFICULTIES, relationKey, type Severity, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
 
@@ -16,7 +17,9 @@ export { logEvent } from './events';
  * logged, replayed, or sent to a server for multiplayer later.
  */
 export type Action =
-  | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode }
+  | { type: 'chooseNation'; nation: NationId; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode;
+      /** Pandemic era: the player's own disease (name, how dangerous, where it breaks out). */
+      disease?: { name?: string; severity?: Severity; origin?: ProvinceId } }
   /** Multiplayer (from the server): the nations led by people, and the room's rules. */
   | { type: 'setPlayers'; nations: NationId[]; difficulty?: Difficulty; capitalFalls?: boolean; economy?: EconomyMode }
   /** Buy a new unit at a barracks (land) or airfield (air). */
@@ -30,6 +33,13 @@ export type Action =
   | { type: 'arm'; weapon: WeaponKind }
   /** Fire one at a province. */
   | { type: 'launch'; weapon: WeaponKind; target: ProvinceId }
+  // the pandemic era
+  /** Lockdown level, closed borders, research funding. */
+  | { type: 'setHealth'; lockdown?: number; borders?: boolean; funding?: number }
+  | { type: 'quarantine'; province: ProvinceId; on: boolean }
+  /** A gift of money ('money') or supplies (a resource id). */
+  | { type: 'sendAid'; to: NationId; what: string; amount: number }
+  | { type: 'shareCure'; to: NationId }
   | { type: 'tick' }
   | { type: 'declareWar'; attacker: NationId; defender: NationId }
   | { type: 'moveArmy'; army: ArmyId; to: ProvinceId }
@@ -95,6 +105,12 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       if (state.playerNation) return 'Nation already chosen';
       if (action.difficulty && !DIFFICULTIES.includes(action.difficulty)) return 'Unknown difficulty';
       if (action.economy && action.economy !== 'simple' && action.economy !== 'detailed') return 'Unknown economy';
+      if (action.disease) {
+        const d = action.disease;
+        if (d.severity && !SEVERITIES.includes(d.severity)) return 'Unknown severity';
+        if (d.name !== undefined && (typeof d.name !== 'string' || d.name.length > 60)) return 'Name the disease in a few words';
+        if (d.origin !== undefined && !state.provinces[d.origin]) return 'Unknown province';
+      }
       return null;
     case 'setPlayers':
       if (actor !== 'system') return 'Only the server sets the players';
@@ -111,11 +127,20 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       return actor === 'system' || (action.weapon !== 'missile' && action.weapon !== 'nuke') ? 'Not allowed' : armError(state, world, actor, action.weapon);
     case 'launch':
       return actor === 'system' || (action.weapon !== 'missile' && action.weapon !== 'nuke') ? 'Not allowed' : launchError(state, world, actor, action.weapon, action.target);
+    case 'setHealth':
+      return actor === 'system' ? 'Only a nation can do that' : healthError(state, actor, action);
+    case 'quarantine':
+      return actor === 'system' ? 'Only a nation can do that' : quarantineError(state, actor, action.province);
+    case 'sendAid':
+      return actor === 'system' ? 'Only a nation can do that' : aidError(state, world, actor, action.to, action.what, action.amount);
+    case 'shareCure':
+      return actor === 'system' ? 'Only a nation can do that' : shareCureError(state, actor, action.to);
     case 'tick':
       return actor === 'system' ? null : 'Only the simulation advances time';
     case 'declareWar': {
       const { attacker, defender } = action;
       if (actor !== 'system' && actor !== attacker) return 'You can only declare war for your own nation';
+      if (state.disease) return 'There are no wars in a pandemic: the enemy is the virus';
       if (!isNation(attacker) || !isNation(defender)) return 'Unknown nation';
       if (attacker === defender) return 'A nation cannot declare war on itself';
       if (sideOf(state, attacker, defender) === 'enemies') return `Already at war with ${state.nations[defender].shortName}`;
@@ -203,6 +228,7 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
         rules: { ...state.rules, difficulty: action.difficulty ?? 'normal', capitalFalls: !!action.capitalFalls, economy: action.economy ?? 'simple' },
       };
       if (s.rules.economy === 'detailed') s = initStocks(s, world);
+      if (action.disease) s = customizeDisease(s, action.disease);
       return logEvent(s, 'player', `You lead ${state.nations[action.nation].name}.`, {
         nations: [action.nation],
       });
@@ -245,6 +271,18 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
 
     case 'launch':
       return applyLaunch(state, world, actor, action.weapon, action.target, log);
+
+    case 'setHealth':
+      return applyHealth(state, world, actor, action);
+
+    case 'quarantine':
+      return applyQuarantine(state, action.province, action.on);
+
+    case 'sendAid':
+      return applyAid(state, world, actor, action.to, action.what, action.amount);
+
+    case 'shareCure':
+      return applyShareCure(state, actor, action.to);
 
     case 'tick':
       return simulateTick(state, world, (s, c) => (validate(s, c, world) ? s : reduce(s, c, world)), log);

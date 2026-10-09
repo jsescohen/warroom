@@ -18,6 +18,9 @@ import { openHowToPlay } from './menus/howToPlay';
 import { openSettings } from './menus/settingsScreen';
 import type { MapData } from '../map/mapData';
 import { openEconomy } from './economyPanel';
+import { openPandemic } from './pandemicPanel';
+import { diseaseChoice } from './nationPicker';
+import { formatShare, healthOf, knownSick, nationHealth, OVERRUN, sickColor } from '../core/pandemic';
 import type { OnlineHud } from '../net/onlineGame';
 import type { WeaponKind } from '../core/weapons';
 import { confirmDialog } from './modal';
@@ -47,6 +50,9 @@ export class Hud {
   /** The dropdown under the money: money and every resource, what you have and what you gain a month. */
   private stockMenu = h('div', { class: 'stock-menu panel', role: 'menu', style: 'display:none' });
   private treasuryKey = '';
+  /** Pandemic era: the outbreak at home and the cure, in the top bar (opens the pandemic window). */
+  private plagueEl = h('button', { class: 'btn plague-btn', title: 'The pandemic: your outbreak, measures and the race for a cure (P)', style: 'display:none' });
+  private plagueKey = '';
   private speedEl = h('div', { class: 'time-controls' });
   private dateEl = h('div', { class: 'date' });
   private toasts = h('div', { class: 'toasts' });
@@ -76,7 +82,7 @@ export class Hud {
     private onLoadGame: (id: string) => void,
   ) {
     this.side = new SidePanel(map, store.world, {
-      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, ...newGameRules() }, nation),
+      chooseNation: (nation) => this.dispatch({ type: 'chooseNation', nation, ...newGameRules(), ...diseaseChoice(store, scenario, nation) }, nation),
       declareWar: (target) => void this.declareWar(target),
       selectArmy: (id) => this.select({ kind: 'army', id }),
       armyOrder: (type, army) => this.dispatch({ type, army } as Action),
@@ -104,14 +110,18 @@ export class Hud {
       build: (province, building) => { if (this.dispatch({ type: 'build', province, building })) audio.play('order'); },
       develop: (province) => { if (this.dispatch({ type: 'develop', province })) audio.play('order'); },
       launch: (weapon, target) => void this.launch(weapon, target),
+      quarantine: (province, on) => { if (this.dispatch({ type: 'quarantine', province, on })) audio.play('order'); },
+      pandemic: (target) => this.openPandemic(target),
     });
     const modes = h('div', { class: 'map-modes panel', role: 'radiogroup', 'aria-label': 'Map mode' });
     const renderModes = () => fill(modes,
-      ...([['political', 'Nations', 'Political map: who owns what'], ['relations', 'Relations', 'How each nation feels about you: green friendly, red hostile'], ['alliances', 'Alliances', 'You, allies, friends, enemies and neutrals'], ['resources', 'Resources', 'Where oil, steel, horses and other resources are found']] as [MapMode, string, string][])
+      ...([...(store.state.disease ? [['disease', 'Outbreak', 'Where the disease is: the sick in each province (abroad, only outbreaks you know of)']] : []), ['political', 'Nations', 'Political map: who owns what'], ['relations', 'Relations', 'How each nation feels about you: green friendly, red hostile'], ['alliances', 'Alliances', 'You, allies, friends, enemies and neutrals'], ['resources', 'Resources', 'Where oil, steel, horses and other resources are found']] as [MapMode, string, string][])
         .map(([m, label, title]) => h('button', { class: m === this.mapMode ? 'active' : '', title: `${title} (M)`, onclick: () => this.setMapMode(m) }, label)),
       this.mapMode === 'alliances' ? h('div', { class: 'map-legend' }, ...([['you', 'You'], ['ally', 'Allies'], ['friend', 'Treaties'], ['enemy', 'At war'], ['neutral', 'Neutral']] as [keyof typeof ALIGNMENT_COLORS, string][])
         .map(([k, l]) => h('span', null, h('i', { style: `background:${ALIGNMENT_COLORS[k]}` }), l))) : null,
       this.mapMode === 'relations' ? h('div', { class: 'map-legend gradient' }, h('span', null, 'Hostile'), h('i', null), h('span', null, 'Friendly')) : null,
+      this.mapMode === 'disease' ? h('div', { class: 'map-legend' }, ...([[sickColor(null, 0), 'No known cases'], [sickColor(0.001, 0), 'First cases'], [sickColor(0.01, 0), 'Spreading'], [sickColor(0.05, 0), 'Severe'], [sickColor(OVERRUN, 0), 'Overwhelmed'], [sickColor(null, 0.6), 'Mostly immune']] as [string, string][])
+        .map(([c, l]) => h('span', null, h('i', { style: `background:${c}` }), l))) : null,
       this.mapMode === 'resources' ? h('div', { class: 'map-legend' }, ...Object.values(store.world.resources)
         .map((r) => h('span', null, h('i', { style: `background:${r.color}` }), r.name)),
         h('span', { class: 'dim', title: 'A white ring marks a deposit worked by a mine, farm or factory (four times the output)' }, '◯ = worked')) : null,
@@ -123,6 +133,26 @@ export class Hud {
     }));
     marks();
     store.subscribe((s, prev) => { if (s.provinces !== prev.provinces && this.mapMode === 'resources') marks(); });
+    // pandemic: the outbreak map, redrawn every day
+    if (store.state.disease) {
+      const paint = () => {
+        const s = this.state;
+        renderer.setDiseaseColors(map.provinces.map((p) => sickColor(knownSick(s, s.playerNation, p.id), s.provinces[p.id]?.immune ?? 0)));
+      };
+      let paintedDay = -1;
+      store.subscribe((s, prev) => {
+        const day = Math.floor(s.clock.hours / 24);
+        if (this.mapMode === 'disease' && (day !== paintedDay || s.playerNation !== prev.playerNation)) { paintedDay = day; paint(); }
+      });
+      this.paintDisease = () => { paintedDay = Math.floor(this.state.clock.hours / 24); paint(); };
+      // a new game: the briefing once the nation is chosen
+      store.subscribe((s, prev) => {
+        if (s.playerNation && !prev.playerNation && s.disease) {
+          this.setMapMode('disease');
+          this.openPandemic(undefined, true);
+        }
+      });
+    }
     // buildings and work under way on the map (refreshed daily, or when they change)
     let infraDay = -1;
     const infra = () => renderer.setInfrastructure(infraItems(this.state, store.world));
@@ -139,6 +169,7 @@ export class Hud {
       h('button', { title: 'Show whole map', onclick: () => renderer.camera.flyTo(map.width / 2, map.height / 2, renderer.camera.minZoom) }, '⤢'),
     );
     this.treasuryEl.addEventListener('click', (e) => { e.stopPropagation(); this.toggleStockMenu(); });
+    this.plagueEl.addEventListener('click', () => this.openPandemic());
     document.addEventListener('pointerdown', (e) => {
       if (this.stockMenu.style.display !== 'none' && !this.stockMenu.contains(e.target as Node) && !this.treasuryEl.contains(e.target as Node)) this.toggleStockMenu(false);
     });
@@ -148,6 +179,7 @@ export class Hud {
       h('div', null, h('div', { class: 'title' }, scenario.name, h('span', { class: 'beta-badge small' }, spectating ? 'Spectating' : 'Beta')), h('div', { class: 'subtitle' }, scenario.subtitle)),
       this.playerEl,
       this.treasuryEl,
+      this.plagueEl,
       this.aiStatus,
       this.diploBtn,
       h('button', { class: 'btn diplo-btn', title: 'Ledger: the great powers compared, with graphs (L)', onclick: () => void this.withPause(() => openLedger(store), true) }, 'Ledger'),
@@ -271,7 +303,7 @@ export class Hud {
         for (const e of newImportant(prev, s).slice(-3)) this.toast(e.text, e.nations?.includes(s.playerNation ?? '') ? 'alert' : 'info');
       }
       if (s.playerNation !== prev.playerNation) this.renderPlayer();
-      if (s.nations !== prev.nations || s.clock !== prev.clock || s.playerNation !== prev.playerNation) { this.renderTreasury(); this.renderStockMenu(); }
+      if (s.nations !== prev.nations || s.clock !== prev.clock || s.playerNation !== prev.playerNation) { this.renderTreasury(); this.renderStockMenu(); this.renderPlague(); }
       if (this.selection?.kind === 'army' && !s.armies[this.selection.id]) this.select(null);
       else if (this.selection?.kind === 'armies' && this.selection.ids.some((id) => !s.armies[id])) this.selectArmies(this.selection.ids.filter((id) => s.armies[id]));
       else this.side.render(s, this.selection);
@@ -295,6 +327,7 @@ export class Hud {
   render() {
     this.renderPlayer();
     this.renderTreasury();
+    this.renderPlague();
     this.renderSpeed();
     this.renderClock();
     this.side.render(this.state, this.selection);
@@ -321,8 +354,9 @@ export class Hud {
   }
 
   private setMapMode(m: MapMode) {
-    if (m !== 'political' && m !== 'resources' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
+    if (m !== 'political' && m !== 'resources' && m !== 'disease' && !this.state.playerNation) return this.toast('Choose your nation first: these maps are drawn from its point of view.', 'info');
     this.mapMode = m;
+    if (m === 'disease') this.paintDisease();
     this.renderer.setMapMode(m);
     if (m === 'resources') this.renderModes();
     this.renderModes();
@@ -623,6 +657,30 @@ export class Hud {
       h('span', { class: net < 0 ? 'danger-text' : 'ok-text' }, ` ${net >= 0 ? '+' : '−'}${Math.abs(Math.round(net))}`));
   }
 
+  /** Pandemic era: "☣ 0.3% sick · cure 23%" in the top bar. */
+  private renderPlague() {
+    const s = this.state;
+    const me = s.playerNation;
+    this.plagueEl.style.display = s.disease && me ? '' : 'none';
+    if (!s.disease || !me) return;
+    const key = `${Math.floor(s.clock.hours / 24)}|${JSON.stringify(s.nations[me]?.health ?? {})}`;
+    if (key === this.plagueKey) return;
+    this.plagueKey = key;
+    const nh = nationHealth(s, this.store.world, me);
+    const hh = healthOf(s, me);
+    const cls = nh.sickShare >= OVERRUN || (hh.overrun ?? 0) > 0 ? 'danger-text' : nh.sickShare > 0.002 ? 'warn-text' : 'ok-text';
+    this.plagueEl.replaceChildren(h('span', { class: 'coin' }, '☣'), h('span', { class: cls }, nh.sickShare > 0 ? `${formatShare(nh.sickShare)} sick` : 'No cases'),
+      h('span', { class: 'dim' }, hh.cure ? ' · cured' : ` · cure ${Math.floor(hh.research ?? 0)}%`));
+  }
+
+  private paintDisease = () => {};
+
+  /** The pandemic window (P). */
+  private openPandemic(target?: string, intro = false) {
+    if (!this.state.disease || !this.state.playerNation) return;
+    void this.withPause(() => openPandemic(this.store, { toast: (t) => this.toast(t, 'alert'), diplomacy: (n) => this.diplo.open(n) }, { target, intro }), true);
+  }
+
   private renderPlayer() {
     const s = this.state;
     const player = s.playerNation ? s.nations[s.playerNation] : null;
@@ -693,7 +751,8 @@ export class Hud {
     else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this.diplo.open(this.selectedNation() ?? undefined); }
     else if (e.key === 'l' || e.key === 'L') void this.withPause(() => openLedger(this.store), true);
     else if (e.key === 't' || e.key === 'T') { this.toggleStockMenu(false); this.openTreasury(); }
-    else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : this.mapMode === 'alliances' ? 'resources' : 'political');
+    else if (e.key === 'm' || e.key === 'M') this.setMapMode(this.mapMode === 'political' ? 'relations' : this.mapMode === 'relations' ? 'alliances' : this.mapMode === 'alliances' ? 'resources' : this.mapMode === 'resources' && this.state.disease ? 'disease' : 'political');
+    else if (e.key === 'p' || e.key === 'P') this.openPandemic();
     else if (e.key === 'h' || e.key === 'H' || e.key === '?') void this.withPause(() => openHowToPlay(), true);
   }
 
@@ -760,6 +819,11 @@ export class Hud {
     const garrison = garrisonOf(s, id), full = garrisonMax(s, id);
     const line = (text: string, cls = 'dim') => parts.push(h('span', { class: `tip-line ${cls}` }, text));
     if (owner.capital === id) parts.push(h('span', { class: 'dim' }, '★ capital'));
+    if (s.disease) {
+      const sick = knownSick(s, s.playerNation, id);
+      if (sick !== null) line(`☣ ${formatShare(sick)} sick${sick >= OVERRUN ? ': hospitals overwhelmed' : ''}`, sick >= OVERRUN ? 'danger-text' : 'warn-text');
+      if (prov.quarantine) line('Quarantined', 'warn-text');
+    }
     if (s.battles[id] !== undefined) line('⚔ Battle in progress', 'danger-text');
     if (prov.siege) {
       const by = s.nations[prov.siege.by]?.shortName ?? '?';

@@ -4,6 +4,7 @@ import { diplomacyTick } from './diplomacy';
 import { HISTORY_EVERY_HOURS, recordHistory } from './history';
 import { economyTick, projectsTick } from './economy';
 import { militaryTick } from './military';
+import { pandemicTick } from './pandemic';
 import { isHuman, type GameEvent, type GameState } from './types';
 import type { World } from './world';
 
@@ -23,6 +24,7 @@ export function simulateTick(state: GameState, world: World, apply: ApplyFn, log
   s = militaryTick(s, world, log);
   s = projectsTick(s, world, log);
   s = economyTick(s, world, log);
+  if (s.disease) s = pandemicTick(s, world, log);
   s = diplomacyTick(s);
   if (s.clock.hours % HISTORY_EVERY_HOURS === 0) s = recordHistory(s);
   return s;

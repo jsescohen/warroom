@@ -185,6 +185,20 @@ const US_STEEL: D[] = [[-80, 40.4, 1.5], [-87.5, 41.6, 1.5], [-92.5, 47.5, 1.5],
 const US_FOOD: D[] = [[-97, 40, 4], [-90, 41.5, 3], [-100, 46, 2.5], [-120.5, 37, 1.5]];
 const US_URANIUM: D[] = [[-108, 43, 2], [-108.5, 38, 1.5], [-107.8, 35.4, 1.2], [-110, 37.5, 1.2]];
 
+// ---- the pandemic: what fights a disease ------------------------------------------------------------
+/** Rainforests and other rich ecosystems, where new medicines are found. */
+const COMPOUNDS: D[] = [[-62, -4, 5], [-71, -8, 3], [-77, -1, 1.5], [-42, -20, 1.5], [-84, 10, 1.5], [22, -1, 4], [12, 4, 1.5], [11.5, -0.5, 1.5], [47, -19, 2.5],
+  [114, 1, 2.5], [101, 0, 2], [143, -5, 2.5], [101, 24, 1.5], [75.5, 12, 1.5], [145.5, -17, 1.5]];
+/** Pharmaceutical industry. */
+const MEDICINE: D[] = [[7.6, 47.6, 1], [-74.5, 40.5, 1], [78.5, 17.4, 1], [72.6, 23, 1], [-8.5, 51.9, 1], [8.7, 50.1, 1], [121.5, 31.2, 1], [135.5, 34.7, 1], [0.1, 52.2, 0.8],
+  [4.4, 50.8, 0.8], [12.5, 55.7, 0.8], [-66.5, 18.2, 0.8], [-46.6, -23.5, 1], [126.7, 37.5, 0.8], [34.8, 32.1, 0.6], [103.8, 1.35, 0.6]];
+/** Research labs and biotech. */
+const REAGENTS: D[] = [[-71.1, 42.4, 1], [-117.2, 32.9, 1], [-122.3, 37.6, 1], [4.5, 52.2, 0.8], [8.5, 49.5, 0.8], [114, 22.5, 1], [139.7, 35.7, 1], [18, 59.3, 1], [4.8, 45.8, 0.8],
+  [83, 55, 1.5], [37.6, 55.75, 1], [73.9, 18.5, 1], [-82.4, 23.1, 0.8], [-79.4, 43.7, 1], [116.4, 39.9, 1]];
+/** Masks, gowns and gloves: the textile and plastics industry. */
+const GEAR: D[] = [[113.3, 23.1, 1.5], [101.7, 3.1, 1], [106.7, 10.8, 1], [90.4, 23.8, 1], [100.5, 13.75, 1], [74.5, 32.5, 1], [29, 41, 1], [-100.3, 25.7, 1], [-87.6, 41.9, 1],
+  [7.2, 51.5, 0.8], [9.2, 45.5, 0.8], [106.8, -6.2, 1], [77.3, 11.1, 1], [120.2, 30.3, 1]];
+
 // ---- the eras ------------------------------------------------------------------------------------
 const horses = (deposits: D[], units: string[]): ResourceDef => ({ id: 'horses', name: 'Horses', color: '#b07a45', extract: 'farm', price: 4, units, deposits });
 const grain = (deposits: D[]): ResourceDef => ({ id: 'grain', name: 'Grain', color: '#d8c15a', extract: 'farm', price: 2, deposits });
@@ -255,6 +269,14 @@ export const ERA_RESOURCES: Record<EraId, ResourceDef[]> = {
     grain([...GRAIN_OLD, ...FOOD]),
     { id: 'spices', name: 'Spices', color: '#c0553a', extract: 'farm', price: 7, deposits: SPICES },
   ],
+  // the pandemic: no oil or steel, but the materials of medicine
+  pandemic: [
+    { id: 'compounds', name: 'Rare plant compounds', color: '#3f9a4a', extract: 'farm', price: 9, deposits: COMPOUNDS },
+    { id: 'medicine', name: 'Medicines', color: '#d0453a', extract: 'factory', price: 7, deposits: MEDICINE },
+    { id: 'reagents', name: 'Lab reagents', color: '#3f8fd2', extract: 'factory', price: 8, deposits: REAGENTS },
+    { id: 'gear', name: 'Protective gear', color: '#e0c060', extract: 'factory', price: 4, units: ['guard'], deposits: GEAR },
+    food(FOOD),
+  ],
 };
 
 /**
@@ -271,6 +293,7 @@ export const ERA_UNIT_COSTS: Record<EraId, Record<string, Record<string, number>
   modern: { infantry: { food: 1, steel: 1 }, armor: { steel: 3, oil: 2 }, air: { steel: 2, oil: 2, electronics: 2 }, drones: { electronics: 2, rare: 1 } },
   usa: { infantry: { food: 1 }, armor: { steel: 3, oil: 2 }, air: { steel: 2, oil: 2, electronics: 2 }, drones: { electronics: 2 } },
   pangea: { spearmen: { grain: 1 }, swordsmen: { iron: 2 }, archers: { grain: 1 }, cavalry: { horses: 2 } },
+  pandemic: { guard: { food: 1, gear: 1 } },
 };
 
 /** Materials to develop a province one level, per era (plus money). */
@@ -284,6 +307,7 @@ export const DEVELOP_COST: Record<EraId, Record<string, number>> = {
   modern: { food: 2, steel: 2, electronics: 1 },
   usa: { food: 2, steel: 2, electronics: 1 },
   pangea: { grain: 3, iron: 1 },
+  pandemic: { food: 2, medicine: 1 },
 };
 
 export const resourcesOf = (era: EraId): ResourceDef[] => ERA_RESOURCES[era] ?? [];

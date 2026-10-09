@@ -18,6 +18,7 @@ button, .btn, a, input, select { touch-action: manipulation; }
   .topbar > div:first-child, .topbar .ai-status, .topbar .icon-btn:not(:last-of-type) { display: none !important; }
   .topbar .player { order: 1; flex: 1 1 auto; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .topbar .treasury-btn { order: 2; padding: 5px 8px; font-size: 12px; }
+  .topbar .plague-btn { order: 2; padding: 5px 8px; font-size: 12px; }
   .topbar .date { order: 7; min-width: 0; padding: 2px 8px; margin-left: auto; }
   .topbar .date-main { font-size: 13px; }
   .topbar .date-turn { font-size: 9px; }

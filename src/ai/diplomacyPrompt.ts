@@ -1,3 +1,5 @@
+import { formatShare, healthOf, nationHealth } from '../core/pandemic';
+import { formatPop } from '../core/population';
 import { AGREEMENT_LABEL, borderProvinces, describeTerms, militaryPower, type Initiative, type Willingness } from '../core/diplomacy';
 import { memoryOf } from '../core/events';
 import { allied, atWar, getRelation } from '../core/queries';
@@ -77,6 +79,15 @@ export function buildDiplomacyPrompt(i: DiplomacyPromptInput) {
     `YOUR MEMORY OF THEM: ${[...mem.grievances, ...mem.notes].join(' ') || 'nothing notable yet'}`,
     `BORDER PROVINCES - yours: ${provNames(borderProvinces(s, world, ai, other))}; theirs: ${provNames(borderProvinces(s, world, other, ai))}.`,
   ];
+  if (s.disease) {
+    // the pandemic in a line: how bad it is for each side, and the race for the cure
+    const plague = (id: NationId) => {
+      const nh = nationHealth(s, world, id);
+      const hh = healthOf(s, id);
+      return `${n(id)} ${formatShare(nh.sickShare)} sick, ${formatPop(hh.deaths ?? 0)} dead, ${hh.cure ? 'HAS THE CURE' : `cure research ${Math.floor(hh.research ?? 0)}%`}${hh.borders ? ', borders closed' : ''}`;
+    };
+    lines.push(`PANDEMIC (${s.disease.name}, broke out in ${s.nations[s.provinces[s.disease.origin]?.owner]?.shortName ?? 'unknown'}): ${plague(ai)}; ${plague(other)}. There are no wars: research pacts pool work on a cure; gifts of money and supplies are welcome; whoever has the cure may share it.`);
+  }
   if (i.pending) {
     const w = i.pending.willingness;
     const lean = w.score >= 20 ? 'lean towards accepting' : w.score >= -25 ? 'undecided' : 'must refuse';
@@ -94,7 +105,7 @@ export function buildDiplomacyPrompt(i: DiplomacyPromptInput) {
     'Return JSON exactly in this shape:',
     '{"reply":"your message, in character","relationChange":-10 to 10 (how this exchange changes your opinion of them),' +
       '"accepted":true|false|null (your answer to THEIR PROPOSAL; null if none),' +
-      '"agreementProposed":false,"agreementType":"none|alliance|non-aggression|ceasefire|peace|territory|joint-war|demand",' +
+      '"agreementProposed":false,"agreementType":"none|alliance|non-aggression|ceasefire|peace|territory|joint-war|demand|research",' +
       '"terms":{"give":["your province names you would cede"],"take":["their province names you want"],"target":"nation name for a joint war"},' +
       '"memory":"one short sentence worth remembering about them, or empty"}',
     i.initiative

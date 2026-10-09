@@ -2,12 +2,12 @@ import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 
 /**
  * Buildings and work under way, drawn on the map: small pictograms on a dark disc (an oil derrick,
- * a pickaxe, wheat, a factory, a tent, a plane, a tower, a radar dish), a ring that fills up while
+ * a pickaxe, wheat, a factory, a tent, a plane, a tower, a radar dish, a cross, a flask), a ring that fills up while
  * something is being built or trained (with the days left), and the province's output ("+4 oil").
  * Drawn in screen pixels: the container is scaled 1/zoom by the renderer.
  */
 
-export type InfraIcon = 'oil' | 'mine' | 'farm' | 'factory' | 'barracks' | 'airfield' | 'fort' | 'airdefense' | 'develop' | 'train';
+export type InfraIcon = 'oil' | 'mine' | 'farm' | 'factory' | 'barracks' | 'airfield' | 'fort' | 'airdefense' | 'hospital' | 'lab' | 'develop' | 'train';
 
 export interface InfraItem {
   province: string;
@@ -65,6 +65,14 @@ function glyph(g: Graphics, icon: InfraIcon, x: number, y: number) {
       line([0, 0, 0, 5], 1.4);
       line([-3, 5, 3, 5], 1.4);
       line([0, 0, 2, -4], 1.1);
+      break;
+    case 'hospital': // a cross
+      g.rect(x - 1.6, y - 5, 3.2, 10).fill(INK);
+      g.rect(x - 5, y - 1.6, 10, 3.2).fill(INK);
+      break;
+    case 'lab': // a flask
+      g.poly([x - 1.6, y - 5.5, x + 1.6, y - 5.5, x + 1.6, y - 1.5, x + 5, y + 5, x - 5, y + 5, x - 1.6, y - 1.5]).fill(INK);
+      g.rect(x - 2.6, y - 6, 5.2, 1.2).fill(INK);
       break;
     case 'develop': // houses
       g.poly([x - 5, y + 5, x - 5, y, x - 2.5, y - 2.5, x, y, x, y + 5]).fill(INK);

@@ -17,7 +17,7 @@ export function sideOf(state: GameState, a: NationId, b: NationId): 'enemies' | 
 }
 
 export const treatyName = (t: Treaty['type']) =>
-  ({ alliance: 'alliance', 'non-aggression': 'non-aggression pact', ceasefire: 'ceasefire', peace: 'peace treaty', trade: 'trade agreement' })[t];
+  ({ alliance: 'alliance', 'non-aggression': 'non-aggression pact', ceasefire: 'ceasefire', peace: 'peace treaty', trade: 'trade agreement', research: 'research pact' })[t];
 
 /**
  * `nation` leaves a treaty. If it was a promise to another party (alliance, pact, ceasefire, peace),
@@ -25,11 +25,11 @@ export const treatyName = (t: Treaty['type']) =>
  */
 export function leaveTreaty(state: GameState, nation: NationId, treaty: Treaty, reason: string): GameState {
   const name = (id: NationId) => state.nations[id]?.shortName ?? id;
-  // ending a trade agreement is business, not betrayal
-  if (treaty.type === 'trade') {
+  // ending a trade agreement (or a research pact) is business, not betrayal
+  if (treaty.type === 'trade' || treaty.type === 'research') {
     let s: GameState = { ...state, treaties: state.treaties.filter((t) => t.id !== treaty.id) };
-    for (const p of treaty.parties) if (p !== nation) s = addRelation(s, nation, p, -5);
-    return logEvent(s, 'treaty-ended', `${name(nation)} ends its trade agreement with ${treaty.parties.filter((p) => p !== nation).map(name).join(', ')}.`, {
+    for (const p of treaty.parties) if (p !== nation) s = addRelation(s, nation, p, treaty.type === 'research' ? -10 : -5);
+    return logEvent(s, 'treaty-ended', `${name(nation)} ends its ${treatyName(treaty.type)} with ${treaty.parties.filter((p) => p !== nation).map(name).join(', ')}.`, {
       nations: treaty.parties, important: treaty.parties.some((p) => isHuman(s, p)),
     });
   }

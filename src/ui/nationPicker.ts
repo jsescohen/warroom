@@ -7,6 +7,16 @@ import type { ScenarioDef } from '../core/scenario';
 import type { GameStore } from '../core/store';
 import type { MapRenderer } from '../map/MapRenderer';
 import { fill, h, swatch } from './dom';
+import { outbreakSites, SEVERITIES, SEVERITY } from '../core/pandemic';
+import type { Severity } from '../core/types';
+
+/** Pandemic era: the disease the player sets up (kept for the next game this session). */
+const plague = { name: '', severity: 'serious' as Severity, where: 'abroad' as 'abroad' | 'anywhere' | 'home' };
+const WHERE_HINT = {
+  abroad: 'It breaks out in a big city somewhere else in the world: you have a little time to prepare.',
+  anywhere: 'It breaks out in any big city in the world, maybe yours.',
+  home: 'It breaks out in one of your own big cities. The world will blame you.',
+};
 
 /**
  * "Choose your nation" overlay shown at the start of a new game: the era's playable powers with
@@ -23,6 +33,20 @@ export const ECONOMY_HINT = {
   simple: 'Simple: provinces earn money, you buy troops at barracks, resources make units cheaper.',
   detailed: 'Detailed: as simple, plus resource stockpiles that armies use up. Run out and those units fight weaker.',
 };
+
+/**
+ * The disease set up in the picker, for a chooseNation order (pandemic era; nothing otherwise).
+ * Where it breaks out is a random big city, as chosen.
+ */
+export function diseaseChoice(store: GameStore, scenario: ScenarioDef, nation: string) {
+  if (!scenario.pandemic) return {};
+  const s = store.state;
+  const sites = outbreakSites(store.world);
+  const home = sites.filter((p) => s.provinces[p]?.owner === nation);
+  const pool = plague.where === 'home' ? (home.length ? home : [s.nations[nation]?.capital ?? ''].filter(Boolean))
+    : plague.where === 'abroad' ? sites.filter((p) => s.provinces[p]?.owner !== nation) : sites;
+  return { disease: { name: plague.name.trim() || undefined, severity: plague.severity, origin: pool[Math.floor(Math.random() * pool.length)] } };
+}
 
 export class NationPicker {
   readonly el = h('section', { class: 'nation-picker panel' });
@@ -70,11 +94,27 @@ export class NationPicker {
       h('div', { class: 'picker-difficulty' }, h('span', null, 'Economy'),
         segmented(getSettings().economy, [['simple', 'Simple'], ['detailed', 'Detailed']], (v) => { updateSettings({ economy: v }); this.render(); })),
       h('p', { class: 'setting-hint' }, ECONOMY_HINT[getSettings().economy]),
-      h('div', { class: 'picker-difficulty' }, h('span', { title: 'When a nation loses its capital it surrenders at once, with all its land' }, 'Capital falls = nation falls'),
+      this.scenario.pandemic ? null : h('div', { class: 'picker-difficulty' }, h('span', { title: 'When a nation loses its capital it surrenders at once, with all its land' }, 'Capital falls = nation falls'),
         toggle(getSettings().capitalFalls, (v) => { updateSettings({ capitalFalls: v }); }, 'Capital falls = nation falls')),
+      ...(this.scenario.pandemic ? this.diseaseSetup() : []),
       h('p', { class: 'setting-hint' }, 'Click a nation below, or any nation on the map and choose "Lead" in its panel.'),
       h('div', { class: 'pick-list' }, ...rows),
     );
+  }
+
+  /** Pandemic era: name the disease, how dangerous it is, and where it breaks out. */
+  private diseaseSetup(): HTMLElement[] {
+    const name = h('input', { class: 'plague-name', type: 'text', maxlength: '40', placeholder: this.scenario.pandemic!.name, value: plague.name, 'aria-label': 'Name of the disease' }) as HTMLInputElement;
+    name.addEventListener('input', () => { plague.name = name.value; });
+    return [
+      h('div', { class: 'picker-difficulty' }, h('span', null, 'The disease'), name),
+      h('div', { class: 'picker-difficulty' }, h('span', null, 'Severity'),
+        segmented(plague.severity, SEVERITIES.map((v) => [v, SEVERITY[v].label] as [Severity, string]), (v) => { plague.severity = v; this.render(); })),
+      h('p', { class: 'setting-hint' }, SEVERITY[plague.severity].text),
+      h('div', { class: 'picker-difficulty' }, h('span', null, 'Breaks out'),
+        segmented(plague.where, [['abroad', 'Abroad'], ['anywhere', 'Anywhere'], ['home', 'At home']], (v) => { plague.where = v; this.render(); })),
+      h('p', { class: 'setting-hint' }, WHERE_HINT[plague.where]),
+    ];
   }
 
   private preview(id: string) {
@@ -89,7 +129,7 @@ export class NationPicker {
   }
 
   private choose(id: string) {
-    this.store.dispatch({ type: 'chooseNation', nation: id, ...newGameRules() }, id);
+    this.store.dispatch({ type: 'chooseNation', nation: id, ...newGameRules(), ...diseaseChoice(this.store, this.scenario, id) }, id);
     this.renderer.setSelection(null);
     audio.play('capture');
   }

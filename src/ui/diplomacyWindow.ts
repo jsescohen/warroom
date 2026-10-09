@@ -31,6 +31,7 @@ const COMPOSE_OPTIONS: [ComposeType, string][] = [
   ['territory', 'Propose territory exchange'],
   ['joint-war', 'Propose joint war'],
   ['trade', 'Propose trade agreement'],
+  ['research', 'Propose research pact (pandemic)'],
   ['demand', 'Issue ultimatum (demand land)'],
 ];
 
@@ -60,7 +61,9 @@ export class DiplomacyWindow {
   private waitStart = 0;
 
   constructor(private store: GameStore, private scenario: ScenarioDef, private diplomat: Diplomat, private hooks: DiplomacyHooks) {
-    for (const [v, label] of COMPOSE_OPTIONS) this.composeType.append(h('option', { value: v }, label));
+    // a pandemic has research pacts and no wars; other eras no research pacts
+    const offered = COMPOSE_OPTIONS.filter(([v]) => (store.state.disease ? !['joint-war', 'demand', 'ceasefire', 'peace'].includes(v) : v !== 'research'));
+    for (const [v, label] of offered) this.composeType.append(h('option', { value: v }, store.state.disease ? label.replace(' (pandemic)', '') : label));
     const composer = h('div', { class: 'diplo-composer' },
       h('div', { class: 'diplo-compose-row' }, this.composeType, this.composeExtra),
       h('div', { class: 'diplo-compose-row' }, this.input, this.sendBtn),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ---- lenient field parsers: small models format things loosely --------------------------------
 
 export const RISK_LEVELS = ['Low', 'Medium', 'High', 'Extreme'] as const;
-export const AGREEMENT_TYPES = ['alliance', 'non-aggression', 'ceasefire', 'peace', 'territory', 'joint-war', 'demand'] as const;
+export const AGREEMENT_TYPES = ['alliance', 'non-aggression', 'ceasefire', 'peace', 'territory', 'joint-war', 'demand', 'research'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
 /** "high", "HIGH risk", "Very high" → "High"; "critical"/"severe" → "Extreme". */

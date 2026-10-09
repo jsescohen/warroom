@@ -154,4 +154,6 @@ export interface ScenarioDef {
   combat?: { homeDefense?: number; captureDays?: number };
   /** Multiplier on the AI's appetite for wars of expansion (modern states rarely start them). Default 1. */
   aiWarAppetite?: number;
+  /** A pandemic era: a disease breaks out at the start, and there are no wars (see core/pandemic.ts). */
+  pandemic?: { name: string };
 }

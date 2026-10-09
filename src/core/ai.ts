@@ -3,6 +3,7 @@ import { ACCEPT_LEAN, militaryPower, validateTerms, willingness } from './diplom
 import { addRelation, getRel } from './events';
 import { accessOf, armyCount, BUILDINGS, budgetOf, difficultyMult, eraHasAir, isAirUnit, producedBy, manpowerCap, recruitCost, recruitError, recruitSite, inTraining, supportedArmies, upkeepOf, basicUnit, buildError, developError, marketQuote, materialsOf, usedBy } from './economy';
 import { launchError } from './weapons';
+import { healthOf, MAX_LABS, nationHealth, neighboursOf, nextTrial, pactPartners, worldSickShare } from './pandemic';
 import { BASE_STRENGTH, fleetPower, fleetsByProvince, garrisonPower, homePort, isFleet, seaDenied, strikeError } from './military';
 import { allied, atWar, cobelligerents, friendly } from './queries';
 import { nextRandom } from './rng';
@@ -40,6 +41,7 @@ export function aiTick(state: GameState, world: World, apply: Apply): GameState 
     s = planStrikes(s, world, n, apply);
     if ((day + i) % 7 === 0) s = strategize(s, world, n, apply, day);
     if ((day + i) % 7 === 3) s = planEconomy(s, world, n, apply, day);
+    if (s.disease && (day + i) % 3 === 0) s = planHealth(s, world, n, apply, day + i);
   });
   if (slot === 0 && day > 0 && day % 30 === 0) s = driftRelations(s);
   return s;
@@ -503,6 +505,9 @@ function planEconomy(state: GameState, world: World, n: NationId, apply: Apply, 
     if (untapped && r && treasury() >= 25 && !buildError(s, world, n, untapped, r.extract)) run({ type: 'build', province: untapped, building: r.extract });
   }
 
+  // a pandemic: no armies to raise or forts to build (see planHealth)
+  if (s.disease) return s;
+
   // 1) recruit: up to two units a week while under strength and the money lasts
   for (let k = 0; k < 2 && armyCount(s, world, n) + inTraining(s, n) < target; k++) {
     const nation = s.nations[n];
@@ -611,6 +616,91 @@ function fireWeapons(state: GameState, world: World, n: NationId, apply: Apply, 
       const t = [...nearCap, ...targets].find(([p, str]) => p !== cap && str >= 15 && !launchError(s, world, n, 'nuke', p));
       if (t) s = apply(s, { action: { type: 'launch', weapon: 'nuke', target: t[0] }, actor: n });
     }
+  }
+  return s;
+}
+
+/**
+ * The pandemic: measures every few days (lockdown by the size of the outbreak, borders while the
+ * neighbours are sick, funding by the treasury), and once a week labs and hospitals, materials for
+ * the trials, research pacts with the willing, help for sick friends, and the cure for friends.
+ */
+function planHealth(state: GameState, world: World, n: NationId, apply: Apply, tick: number): GameState {
+  let s = state;
+  const me = s.nations[n];
+  if (!me?.alive || !me.capital) return s;
+  const run = (action: Parameters<Apply>[1]['action']) => {
+    const before = s;
+    s = apply(s, { action, actor: n });
+    return s !== before;
+  };
+  const h = healthOf(s, n);
+  const mine = nationHealth(s, world, n);
+  const world0 = worldSickShare(s, world);
+  const near = neighboursOf(s, world, n);
+  const nearSick = Math.max(0, ...near.map((x) => nationHealth(s, world, x).sickShare));
+  const treasury = s.nations[n].treasury ?? 0;
+  // leaders act late, and the people tire of a lockdown: they ease it as soon as the numbers fall
+  let lockdown: number = h.lockdown ?? 0;
+  if (mine.sickShare >= 0.03) lockdown = 2;
+  else if (mine.sickShare >= 0.006) lockdown = Math.max(lockdown, 1);
+  else if (mine.sickShare < 0.004 && lockdown === 2) lockdown = 1;
+  else if (mine.sickShare < 0.001 && lockdown === 1) lockdown = 0;
+  if (treasury < -20 && lockdown > 0) lockdown--;
+  const borders = h.borders ? !(world0 < 0.0002 && nearSick < 0.0005) : mine.sickShare < 0.005 && (nearSick >= 0.01 || world0 >= 0.004);
+  const net = budgetOf(s, world, n).net;
+  const funding = net > 8 || treasury > 90 ? 2 : net < 0 && treasury < 10 ? 0 : 1;
+  if (lockdown !== (h.lockdown ?? 0) || borders !== !!h.borders || funding !== (h.funding ?? 1)) run({ type: 'setHealth', lockdown, borders, funding });
+
+  if (Math.floor(tick / 3) % 2 !== 0) return s; // the rest every six days
+  const owned = Object.keys(s.provinces).filter((p) => s.provinces[p].owner === n)
+    .sort((x, y) => world.provinces[y].pop - world.provinces[x].pop || (x < y ? -1 : 1));
+  const buy = (r: string, q: number, reserve: number) => {
+    const lack = Math.ceil(q - (s.nations[n].stock?.[r] ?? 0));
+    return lack <= 0 || ((s.nations[n].treasury ?? 0) - marketQuote(s, world, r, lack) >= reserve && run({ type: 'market', resource: r, amount: Math.min(40, lack) }));
+  };
+  // 1) the trials' materials
+  const trial = nextTrial(s, n);
+  if (trial && (h.research ?? 0) >= trial.at - 5) for (const [r, q] of Object.entries(trial.needs)) if (!buy(r, q, 15)) break;
+  // 2) labs (the great powers several), then hospitals where the sick are
+  const labs = owned.filter((p) => s.provinces[p].build?.includes('lab')).length;
+  const wantLabs = me.major ? Math.min(MAX_LABS, 3 + Math.floor(treasury / 150)) : treasury > 120 ? 2 : 1;
+  const building = (b: BuildingId) => (s.projects ?? []).some((x) => x.nation === n && x.what === b);
+  if (labs < wantLabs && !building('lab') && treasury > 45) {
+    const site = owned.find((p) => !buildError(s, world, n, p, 'lab') || /^Needs d/.test(buildError(s, world, n, p, 'lab') ?? ''));
+    if (site && buy('reagents', 3, 50)) run({ type: 'build', province: site, building: 'lab' });
+  } else if (treasury > 55 && !building('hospital')) {
+    const site = owned.filter((p) => (s.provinces[p].sick ?? 0) > 0 || nearSick > 0.002)
+      .find((p) => !buildError(s, world, n, p, 'hospital') || /^Needs d/.test(buildError(s, world, n, p, 'hospital') ?? ''));
+    if (site && buy('medicine', 2, 35) && buy('gear', 2, 35)) run({ type: 'build', province: site, building: 'hospital' });
+  }
+  // 3) supplies for the measures and the vaccines
+  if (lockdown && (s.nations[n].stock?.food ?? 0) < 4) buy('food', 6, 20);
+  if (lockdown && (s.nations[n].stock?.gear ?? 0) < 3) buy('gear', 4, 25);
+  if (h.cure && (s.nations[n].stock?.medicine ?? 0) < 4) buy('medicine', 6, 20);
+  // 4) a research pact with a willing nation (AI leaders sign among themselves)
+  if (!h.cure && pactPartners(s, n).length < (me.major ? 4 : 2) && s.clock.hours >= 72) {
+    const partners = new Set(pactPartners(s, n));
+    const cands = Object.keys(s.nations).filter((x) => x !== n && !isHuman(s, x) && s.nations[x].alive && !partners.has(x))
+      .sort((x, y) => Number(s.nations[y].major) - Number(s.nations[x].major) || getRel(s, n, y) - getRel(s, n, x) || (x < y ? -1 : 1));
+    for (const x of cands.slice(0, 8)) {
+      const terms = { type: 'research' as const, from: n, to: x };
+      if (validateTerms(s, terms) || willingness(s, world, terms, n).score < ACCEPT_LEAN || willingness(s, world, terms, x).score < ACCEPT_LEAN) continue;
+      s = sign(s, apply, terms);
+      break;
+    }
+  }
+  // 5) the cure, for pact partners, allies and friends (players must be good friends)
+  if (h.cure) {
+    const want = Object.keys(s.nations).filter((x) => x !== n && s.nations[x].alive && !healthOf(s, x).cure &&
+      (allied(s, n, x) || getRel(s, n, x) >= (isHuman(s, x) ? 40 : 20)))
+      .sort((x, y) => getRel(s, n, y) - getRel(s, n, x) || (x < y ? -1 : 1))[0];
+    if (want) run({ type: 'shareCure', to: want });
+  }
+  // 6) a rich nation helps a sick ally or friend
+  if ((s.nations[n].treasury ?? 0) > 160) {
+    const sick = Object.keys(s.nations).filter((x) => x !== n && s.nations[x].alive && (allied(s, n, x) || getRel(s, n, x) >= 40) && nationHealth(s, world, x).sickShare >= 0.03).sort()[0];
+    if (sick) run({ type: 'sendAid', to: sick, what: 'money', amount: 25 });
   }
   return s;
 }

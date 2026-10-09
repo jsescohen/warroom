@@ -1,5 +1,6 @@
 import { armyCap, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
 import { basePop, POP_FLOOR, popRatio } from './population';
+import { healthIncome, healthUse, researchCost } from './pandemic';
 import { atWar, provincesOf } from './queries';
 import { humansOf, isHuman, type Army, type BuildingId, type GameEvent, type GameState, type NationId, type Project, type ProvinceId, type Treaty } from './types';
 import type { World } from './world';
@@ -48,6 +49,14 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   farm: { name: 'Farm', cost: 15, days: 10, text: `Works the province's land: ${PRODUCE_EXTRACTED} of its resource a month instead of ${PRODUCE_BASE}.` },
   factory: { name: 'Factory', cost: 30, days: 30, text: `Manufactures the province's resource: ${PRODUCE_EXTRACTED} a month instead of ${PRODUCE_BASE}.` },
   airdefense: { name: 'Air defence', cost: 40, days: 14, text: 'Shoots down missiles and blunts air strikes on this province and its neighbours.' },
+  hospital: { name: 'Hospital', cost: 30, days: 14, text: 'Treats the sick: less than half as many of them die here.' },
+  lab: { name: 'Research lab', cost: 40, days: 30, text: 'Works on the cure: each lab speeds up research (it uses a lab reagent a month).' },
+};
+
+/** Materials for the pandemic era's buildings. */
+const HEALTH_MATERIALS: Partial<Record<BuildingId, Record<string, number>>> = {
+  hospital: { medicine: 2, gear: 2 },
+  lab: { reagents: 3 },
 };
 /** Days to train a basic army (stronger units take longer, good sites less: see recruitSite). */
 export const TRAIN_DAYS = 12;
@@ -96,7 +105,7 @@ export function unitFactor(world: World, unitType: string): number {
 export function provinceOutput(s: GameState, world: World, p: ProvinceId): number {
   const r = world.resources[world.provinces[p]?.resource ?? ''];
   const ps = s.provinces[p];
-  if (!r || !ps || ps.siege || (ps.falloutUntil ?? 0) > s.clock.hours) return 0;
+  if (!r || !ps || ps.siege || ps.quarantine || (ps.falloutUntil ?? 0) > s.clock.hours) return 0;
   return ps.build?.includes(r.extract) ? PRODUCE_EXTRACTED : PRODUCE_BASE;
 }
 
@@ -142,6 +151,7 @@ export function resourceFlow(s: GameState, world: World, n: NationId): Record<st
   if (s.rules.economy === 'detailed') {
     for (const a of Object.values(s.armies)) if (a.owner === n) for (const r of needsOf(world, a.unitType)) flow[r] -= STOCK_USE * (a.maxStrength / BASE_STRENGTH);
   }
+  for (const [r, q] of Object.entries(healthUse(s, world, n))) if (r in flow) flow[r] -= q;
   for (const r of Object.keys(flow)) flow[r] = Math.round(flow[r] * 10) / 10;
   return flow;
 }
@@ -270,9 +280,10 @@ export function recruitCost(s: GameState, world: World, _n: NationId, unitType: 
   return Math.round(RECRUIT_BASE * unitFactor(world, unitType) * site);
 }
 
-export function upkeepOf(_s: GameState, world: World, a: Army): number {
+export function upkeepOf(s: GameState, world: World, a: Army): number {
   if (isFleet(world, a.unitType)) return 0;
-  return UPKEEP_BASE * unitFactor(world, a.unitType) * (a.maxStrength / BASE_STRENGTH);
+  // a pandemic's guard troops cost little: the money goes to hospitals and labs
+  return (s.disease ? 0.3 : 1) * UPKEEP_BASE * unitFactor(world, a.unitType) * (a.maxStrength / BASE_STRENGTH);
 }
 
 /** Armies the nation's land and people support (the old army cap, before difficulty). */
@@ -289,12 +300,17 @@ export interface Budget {
   /** Trade agreement payments (negative: paid out). */
   trade: number;
   upkeep: number;
+  /** Pandemic era: research funding. */
+  health?: number;
   /** Net change per month (before market sales). */
   net: number;
 }
 
 export function budgetOf(s: GameState, world: World, n: NationId): Budget {
-  const land = supportedArmies(s, world, n) * INCOME_PER_ARMY * UPKEEP_BASE * difficultyMult(s, n);
+  const full = supportedArmies(s, world, n) * INCOME_PER_ARMY * UPKEEP_BASE * difficultyMult(s, n);
+  // in a pandemic, lockdowns and the sick cut the taxes, and research costs a share of them
+  const land = full * healthIncome(s, world, n);
+  const health = researchCost(s, n, full);
   let trade = 0;
   for (const t of tradeRoutes(s, n)) {
     const g = t.trade?.gold ?? 0;
@@ -303,7 +319,7 @@ export function budgetOf(s: GameState, world: World, n: NationId): Budget {
   let upkeep = 0;
   for (const a of Object.values(s.armies)) if (a.owner === n) upkeep += upkeepOf(s, world, a);
   const r1 = (v: number) => Math.round(v * 10) / 10;
-  return { land: r1(land), trade: r1(trade), upkeep: r1(upkeep), net: r1(land + trade - upkeep) };
+  return { land: r1(land), trade: r1(trade), upkeep: r1(upkeep), ...(health ? { health: r1(health) } : {}), net: r1(land + trade - upkeep - health) };
 }
 
 export const armyCount = (s: GameState, world: World, n: NationId) =>
@@ -349,6 +365,7 @@ export function applyRecruit(s: GameState, world: World, n: NationId, p: Provinc
 
 /** Materials a building needs besides money (air defence, in the eras that have it). */
 export function buildingMaterials(world: World, b: BuildingId): Record<string, number> {
+  if (HEALTH_MATERIALS[b]) return HEALTH_MATERIALS[b]!;
   if (b !== 'airdefense') return {};
   return world.weapons?.airDefense.materials ?? {};
 }
@@ -361,6 +378,8 @@ export function buildError(s: GameState, world: World, n: NationId, p: ProvinceI
   if (s.provinces[p]?.owner !== n) return 'You can only build in your own provinces';
   if (b === 'airfield' && !eraHasAir(world)) return 'There are no aircraft in this era';
   if (b === 'airdefense' && !world.weapons) return 'There is no air defence in this era';
+  if ((b === 'hospital' || b === 'lab') && !s.disease) return 'Only in a pandemic';
+  if (s.disease && (b === 'fort' || b === 'airfield')) return 'No use in a pandemic';
   if (b === 'mine' || b === 'farm' || b === 'factory') {
     const r = world.resources[world.provinces[p]?.resource ?? ''];
     if (!r) return 'There is nothing here to extract';
@@ -617,9 +636,9 @@ export function economyTick(state: GameState, world: World, log: Logger): GameSt
     if (fresh.length) s = log(s, { kind: 'economy', text: `${s.nations[h].shortName} is out of ${fresh.map((r) => world.resources[r]?.name ?? r).join(' and ')}: units that need it fight at three quarters strength and cannot refit.`, nations: [h], important: true });
   }
 
-  // civilians slowly return and recover
+  // civilians slowly return and recover (the dead of a pandemic do not)
   let patch: GameState['provinces'] | null = null;
-  for (const [p, ps] of Object.entries(s.provinces)) {
+  for (const [p, ps] of Object.entries(s.disease ? {} : s.provinces)) {
     if (ps.pop === undefined) continue;
     const base = basePop(s, world, p);
     const v = ps.pop + base * POP_REGROWTH;

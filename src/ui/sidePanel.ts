@@ -4,6 +4,7 @@ import { allied, armiesIn, atWar, enemiesOf, friendly, getRelation, provincesOf 
 import { BUILDINGS, budgetOf, buildError, buildingMaterials, developCost, developError, extractName, materialsOf, MAX_LEVEL, PRODUCE_EXTRACTED, projectsOf, provinceOutput, recruitableTypes, recruitCost, recruitError, recruitSite, trainDays } from '../core/economy';
 import { launchError, weaponDef, type WeaponKind } from '../core/weapons';
 import { basePop, formatPop, nationPop, popOf } from '../core/population';
+import { formatShare, healthOf, knownSick, LOCKDOWN, nationHealth, OVERRUN, pactPartners } from '../core/pandemic';
 import type { Army, BuildingId, GameState, NationId, Project } from '../core/types';
 import type { World } from '../core/world';
 import type { MapData } from '../map/mapData';
@@ -43,6 +44,10 @@ export interface PanelActions {
   build(province: string, building: BuildingId): void;
   develop(province: string): void;
   launch(weapon: WeaponKind, province: string): void;
+  /** Pandemic era: quarantine a province (or lift it). */
+  quarantine(province: string, on: boolean): void;
+  /** Pandemic era: open the pandemic window (to help or share the cure with a nation). */
+  pandemic(target?: NationId): void;
 }
 
 /** What a piece of work is, in words: "Building oil wells", "Training Armored Corps". */
@@ -218,6 +223,15 @@ export class SidePanel {
     }
     if (prov.level) provRows.push(['Development', `Level ${prov.level} of ${MAX_LEVEL}`]);
     if ((prov.falloutUntil ?? 0) > s.clock.hours) provRows.push(['Fallout', h('span', { class: 'danger-text' }, `Poisoned for ${Math.ceil((prov.falloutUntil! - s.clock.hours) / 24)} more days`)]);
+    if (s.disease) {
+      const sick = knownSick(s, player, id);
+      const mine = !player || owner.id === player;
+      provRows.push(['Outbreak', sick === null
+        ? h('span', { class: 'dim' }, mine || (prov.sick ?? 0) === 0 ? 'No cases' : 'No known cases')
+        : h('span', { class: sick >= OVERRUN ? 'danger-text' : 'warn-text' }, `${formatShare(sick)} sick${sick >= OVERRUN ? ' (hospitals overwhelmed)' : ''}`)]);
+      if ((prov.immune ?? 0) >= 0.005) provRows.push(['Immune', formatShare(prov.immune!)]);
+      if (prov.quarantine) provRows.push(['Quarantine', h('span', { class: 'warn-text' }, 'Sealed off: no travel in or out, no work')]);
+    }
     if (prov.build?.length) provRows.push(['Buildings', prov.build.map((b) => (b === res?.extract ? extractName(this.world, id) : BUILDINGS[b].name)).join(', ')]);
     if (player && owner.id === player && prov.build?.some((b) => b === 'barracks' || b === 'airfield')) provRows.push(['Recruiting', recruitSite(s, this.world, id).label]);
     // work under way here (yours only: other nations' plans are not shown)
@@ -239,6 +253,16 @@ export class SidePanel {
     nationRows.push(['Armies', String(forcesOf.length - fleets)]);
     nationRows.push(['Population', formatPop(nationPop(s, this.world, owner.id))]);
     if ((owner.civDeaths ?? 0) > 0) nationRows.push(['Civilian deaths', h('span', { class: 'danger-text' }, formatPop(owner.civDeaths!))]);
+    if (s.disease) {
+      const nh = nationHealth(s, this.world, owner.id);
+      const hh = healthOf(s, owner.id);
+      const seen = !player || owner.id === player || allies.includes(player) || pactPartners(s, owner.id).includes(player) || nh.sickShare >= 0.005;
+      nationRows.push(['Outbreak', seen ? h('span', { class: nh.sickShare >= OVERRUN ? 'danger-text' : nh.sickShare > 0 ? 'warn-text' : '' }, nh.sickShare > 0 ? `${formatShare(nh.sickShare)} sick` : 'No cases') : h('span', { class: 'dim' }, 'Unknown (no reported outbreak)')]);
+      if ((hh.deaths ?? 0) > 0) nationRows.push(['Disease deaths', h('span', { class: 'danger-text' }, formatPop(hh.deaths!))]);
+      nationRows.push(['Measures', [LOCKDOWN[hh.lockdown ?? 0].label, hh.borders ? 'borders closed' : 'borders open'].join(', ')]);
+      nationRows.push(['Cure', hh.cure ? h('span', { class: 'ok-text' }, 'Has the cure') : owner.id === player || !player ? `Research ${Math.floor(hh.research ?? 0)}%` : 'Not yet']);
+      if (s.disease.fallen?.includes(owner.id)) nationRows.push(['Health system', h('span', { class: 'danger-text' }, 'Collapsed')]);
+    }
     if (owner.id === player || !player) {
       const b = budgetOf(s, this.world, owner.id);
       nationRows.push(['Treasury', `${Math.floor(owner.treasury ?? 0)} (${b.net >= 0 ? '+' : ''}${b.net}/month)`]);
@@ -267,7 +291,7 @@ export class SidePanel {
       kv(nationRows),
     );
 
-    const canDeclare = !!player && player !== owner.id && !atWar(s, player, owner.id) && !(friendly(s, player, owner.id) && !allied(s, player, owner.id));
+    const canDeclare = !s.disease && !!player && player !== owner.id && !atWar(s, player, owner.id) && !(friendly(s, player, owner.id) && !allied(s, player, owner.id));
     // recruiting and building in your own provinces
     const econ: { label: string; err: string | null; title: string; run: () => void }[] = [];
     if (player && owner.id === player) {
@@ -284,11 +308,14 @@ export class SidePanel {
         if (prov.build?.includes(b)) continue;
         const err = buildError(s, this.world, player, id, b);
         // only offer what can exist here (the right extraction building for its resource)
-        if (err && /no aircraft|no air defence|nothing here to extract|needs a /.test(err)) continue;
+        if (err && /no aircraft|no air defence|nothing here to extract|needs a |Only in a pandemic|No use in a pandemic/.test(err)) continue;
         const name = b === res?.extract ? extractName(this.world, id) : BUILDINGS[b].name;
         const mats = billText(this.world, buildingMaterials(this.world, b));
         econ.push({ label: `Build ${name.toLowerCase()} · ${BUILDINGS[b].cost}${mats ? ` + ${mats}` : ''}`, err, title: BUILDINGS[b].text, run: () => this.act.build(id, b) });
       }
+      if (s.disease) econ.push(prov.quarantine
+        ? { label: 'Lift the quarantine', err: null, title: 'Open the province again: people travel and work', run: () => this.act.quarantine(id, false) }
+        : { label: 'Quarantine this province', err: null, title: 'Seal it off: almost no travel in or out and slower spread inside, but it produces and pays nothing', run: () => this.act.quarantine(id, true) });
       if ((prov.level ?? 0) < MAX_LEVEL) {
         const c = developCost(s, this.world, id);
         econ.push({ label: `Develop to level ${(prov.level ?? 0) + 1} · ${c.gold} + ${billText(this.world, c.materials)}`, err: developError(s, this.world, player, id),
@@ -307,13 +334,14 @@ export class SidePanel {
           onclick: () => this.act.launch(w, id) }, `${w === 'nuke' ? '☢ ' : ''}Launch ${def.name.toLowerCase()} (${have})`));
       }
     }
-    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}|${strikes.map((b) => b.textContent + (b as HTMLButtonElement).disabled).join(',')}`;
+    const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${!!s.disease}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}|${strikes.map((b) => b.textContent + (b as HTMLButtonElement).disabled).join(',')}`;
     this.setActions(key, [
       ...(econ.length ? [h('div', { class: 'side-subhead' }, 'Recruit, build and develop')] : []),
       ...econ.map((e) => h('button', { class: 'btn econ-btn', disabled: !!e.err, title: e.err ?? e.title, onclick: e.run }, e.label)),
       ...strikes,
       !player ? h('button', { class: 'btn primary', title: 'Play as this nation for the rest of the game', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
       player && player !== owner.id ? h('button', { class: 'btn', title: 'Open a conversation with their leader: talk, propose deals (D)', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,
+      s.disease && player && player !== owner.id ? h('button', { class: 'btn', title: 'Send money or supplies, or share the cure', onclick: () => this.act.pandemic(owner.id) }, `Help ${owner.shortName}`) : null,
       canDeclare ? h('button', { class: 'btn danger', title: 'Start a war: their allies may join them, and any treaty with them is broken', onclick: () => this.act.declareWar(owner.id) }, `Declare war on ${owner.shortName}`) : null,
       this.focusBtn(id),
     ]);

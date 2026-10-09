@@ -1,6 +1,7 @@
 import type { ScenarioDef } from '../../core/scenario';
 import { bronze } from './bronze';
 import { modern } from './modern';
+import { pandemic } from './pandemic';
 import { pangea } from './pangea';
 import { renaissance } from './renaissance';
 import { romeFall } from './romeFall';
@@ -10,6 +11,6 @@ import { ww1 } from './ww1';
 import { ww2 } from './ww2';
 
 /** All playable scenarios, in era order. */
-export const scenarios: ScenarioDef[] = [bronze, romeRise, romeFall, renaissance, ww1, ww2, modern, usa, pangea];
+export const scenarios: ScenarioDef[] = [bronze, romeRise, romeFall, renaissance, ww1, ww2, modern, pandemic, usa, pangea];
 
 export const getScenario = (id: string) => scenarios.find((s) => s.id === id);
