@@ -469,7 +469,7 @@ export function cleanSettings(s: unknown): RoomSettings | null {
   const name = String(o.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
   const pick = <T,>(v: unknown, ok: readonly T[]) => (ok.includes(v as T) ? (v as T) : null);
   const visibility = pick(o.visibility, ['public', 'private'] as const);
-  const speed = pick(o.speed, [1, 2, 3] as const);
+  const speed = pick(o.speed, [1, 2, 4] as const);
   const difficulty = pick(o.difficulty, ['easy', 'normal', 'hard'] as const);
   const economy = pick(o.economy, ['simple', 'detailed'] as const);
   const maxPlayers = Math.round(Number(o.maxPlayers));

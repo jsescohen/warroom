@@ -18,7 +18,7 @@ export const ww2: ScenarioDef = {
     style: 'a blunt 1939 staff general: clipped sentences, military terms (divisions, fronts, logistics), addresses the leader as "Sir", no modern references',
     reportName: 'Staff briefing',
   },
-  time: { tickHours: 6, turnHours: 24, turnName: 'Day', secondsPerTurn: 15, skipMaxTurns: 14, showHours: true },
+  time: { tickHours: 6, turnHours: 24, turnName: 'Day', secondsPerTurn: 12, skipMaxTurns: 14, showHours: true },
   context:
     'September 1939. Germany has annexed Austria and Czechia and invades Poland. Britain and France guarantee Poland. ' +
     'Germany and the USSR have just signed a secret non-aggression pact. Italy is allied to Germany (Pact of Steel). ' +

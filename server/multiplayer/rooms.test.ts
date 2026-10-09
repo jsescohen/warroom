@@ -18,7 +18,7 @@ describe('multiplayer rooms', () => {
   it('validates room settings', () => {
     expect(cleanSettings(settings())).not.toBeNull();
     expect(cleanSettings({ ...settings(), maxPlayers: 40 })).toBeNull();
-    expect(cleanSettings({ ...settings(), speed: 4 as never })).toBeNull();
+    expect(cleanSettings({ ...settings(), speed: 3 as never })).toBeNull();
     expect(cleanSettings({ ...settings(), maxPlayers: 16 })).not.toBeNull();
   });
 

@@ -37,7 +37,7 @@ export class Tutorial {
         done: () => { const sel = this.selection(); return sel?.kind === 'army' && this.store.state.armies[sel.id]?.owner === p; } },
       { title: 'Give it an order', text: 'Click a province, or drag the counter onto one. The dashed line shows the route and how long it takes. Try one of your own provinces first.',
         done: () => this.moved },
-      { title: 'Start the clock', text: 'Press Space, or 1× at the top right. Watch your army march. Space pauses again; 2× and 3× go faster.',
+      { title: 'Start the clock', text: 'Press Space, or 1× at the top right. Watch your army march. Space pauses again; 2× and 4× go faster.',
         done: () => this.ran },
       { title: 'Look around', text: 'Click another nation’s province to see who owns it, its garrison and its armies. Press M to switch the map to relations or alliances.',
         done: () => { const sel = this.selection(); return sel?.kind === 'province' && !own(sel.id); } },

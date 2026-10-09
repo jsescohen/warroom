@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.7.3',
+    date: '2026-10-09',
+    title: 'A little quicker',
+    items: [
+      { title: 'Game speed', how: 'Normal speed (1×) is now 12 seconds a day in the modern eras (16 seconds a week in the ancient ones), and 4× is back: the speeds are 1×, 2× and 4× (keys 1, 2, 3).' },
+    ],
+  },
+  {
     version: '0.7.2',
     date: '2026-10-09',
     title: 'Building takes time, and you can see it',

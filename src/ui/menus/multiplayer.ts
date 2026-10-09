@@ -13,7 +13,7 @@ export interface MultiplayerActions {
 }
 
 const ERA = (id: string) => getScenario(id)?.name ?? id;
-const SPEED_LABEL: Record<number, string> = { 1: 'Normal pace', 2: 'Fast (2×)', 3: 'Very fast (3×)' };
+const SPEED_LABEL: Record<number, string> = { 1: 'Normal pace', 2: 'Fast (2×)', 4: 'Very fast (4×)' };
 
 /**
  * Multiplayer: public rooms anyone can join, private rooms joined with a code or an invite link
@@ -149,7 +149,7 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
     const era = sel('Era', scenarios.map((s) => [s.id, s.name]), 'ww2');
     const vis = sel('Who can join', [['public', 'Anyone (public)'], ['private', 'Friends with the code (private)']], 'public');
     const max = sel('Players', Array.from({ length: MAX_PLAYERS - 1 }, (_, i) => [String(i + 2), `Up to ${i + 2}`]), '6');
-    const speed = sel('Pace', [['1', SPEED_LABEL[1]], ['2', SPEED_LABEL[2]], ['3', SPEED_LABEL[3]]], '1');
+    const speed = sel('Pace', [['1', SPEED_LABEL[1]], ['2', SPEED_LABEL[2]], ['4', SPEED_LABEL[4]]], '1');
     const diff = sel('AI nations', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], 'normal');
     const econ = sel('Economy', [['simple', 'Simple'], ['detailed', 'Detailed']], 'simple');
     const cap = h('input', { type: 'checkbox' }) as HTMLInputElement;

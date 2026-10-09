@@ -4,9 +4,9 @@ import type { NationId } from '../../core/types';
 export const war = (attacker: NationId, defender: NationId) => ({ type: 'declareWar' as const, attacker, defender });
 
 /** Week-based calendar used by the pre-modern eras. */
-export const WEEKLY = { tickHours: 24, turnHours: 168, turnName: 'Week', secondsPerTurn: 20, skipMaxTurns: 8, showHours: false };
+export const WEEKLY = { tickHours: 24, turnHours: 168, turnName: 'Week', secondsPerTurn: 16, skipMaxTurns: 8, showHours: false };
 /** Day-based calendar used by the modern eras. */
-export const DAILY = { tickHours: 6, turnHours: 24, turnName: 'Day', secondsPerTurn: 15, skipMaxTurns: 14, showHours: true };
+export const DAILY = { tickHours: 6, turnHours: 24, turnName: 'Day', secondsPerTurn: 12, skipMaxTurns: 14, showHours: true };
 
 /** Classical place names shared by the two Roman scenarios. */
 export const CLASSICAL_NAMES: Record<string, string> = {

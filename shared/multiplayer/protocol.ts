@@ -17,8 +17,8 @@ export interface RoomSettings {
   visibility: Visibility;
   /** Human players allowed (unclaimed nations stay with the AI). */
   maxPlayers: number;
-  /** Game speed: 1, 2 or 3 times the era's normal pace. */
-  speed: 1 | 2 | 3;
+  /** Game speed: 1, 2 or 4 times the era's normal pace. */
+  speed: 1 | 2 | 4;
   difficulty: 'easy' | 'normal' | 'hard';
   economy: 'simple' | 'detailed';
   capitalFalls: boolean;
