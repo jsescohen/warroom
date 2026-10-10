@@ -1,4 +1,4 @@
-import { segmented, toggle } from './menus/shell';
+import { segmented } from './menus/shell';
 import { getSettings, newGameRules, updateSettings } from './settings';
 import { audio } from '../audio/audio';
 import { leaderOf } from '../ai/diplomacyPrompt';
@@ -99,8 +99,6 @@ export class NationPicker {
       h('div', { class: 'picker-difficulty' }, h('span', null, 'Economy'),
         segmented(getSettings().economy, [['simple', 'Simple'], ['detailed', 'Detailed']], (v) => { updateSettings({ economy: v }); this.render(); })),
       h('p', { class: 'setting-hint' }, ECONOMY_HINT[getSettings().economy]),
-      this.scenario.pandemic ? null : h('div', { class: 'picker-difficulty' }, h('span', { title: 'When a nation loses its capital it surrenders at once, with all its land' }, 'Capital falls = nation falls'),
-        toggle(getSettings().capitalFalls, (v) => { updateSettings({ capitalFalls: v }); }, 'Capital falls = nation falls')),
       ...(this.scenario.pandemic ? this.diseaseSetup() : [])]),
       h('p', { class: 'setting-hint' }, 'Click a nation below, or any nation on the map and choose "Lead" in its panel.'),
       h('div', { class: 'pick-list' }, ...rows),

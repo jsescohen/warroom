@@ -307,6 +307,7 @@ export interface GameState {
     /** How hard the AI nations play (chosen with the nation). Missing = normal. */
     difficulty?: Difficulty;
     /** Optional rule: a nation whose capital falls surrenders at once. */
+    /** No longer used (an old optional rule; kept so old saves load). */
     capitalFalls?: boolean;
     /** 'detailed' adds resource stockpiles, consumption and shortages. Missing = simple. */
     economy?: EconomyMode;

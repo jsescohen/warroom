@@ -16,6 +16,11 @@ const FLEET_BUILD_EVERY_DAYS = 60;
 export const BASE_STRENGTH = 10;
 /** A fleeing government relocates at least this far (map units, ~600 km in Europe). */
 const CAPITAL_FLIGHT_DIST = 90;
+/** Whoever takes a capital carries off this share of the nation's treasury and stores. */
+const CAPITAL_LOOT = 0.5;
+/** A nation that loses its capital keeps this much of its strength (taxes, manpower, garrisons), each time. */
+const CAPITAL_LOSS = 0.75;
+const CAPITAL_LOSS_FLOOR = 0.3;
 const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`);
 /** Armies landing from the sea attack at this fraction of their strength for AMPHIBIOUS_HOURS. */
 const AMPHIBIOUS_PENALTY = 0.6;
@@ -365,7 +370,24 @@ export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: 
       const byDist = [...remaining].sort((a, b) => d(a) - d(b) || (a < b ? -1 : 1));
       newCap = byDist.find((p) => d(p) >= CAPITAL_FLIGHT_DIST) ?? byDist[byDist.length - 1];
     }
-    next = { ...next, nations: { ...next.nations, [from]: { ...loser, capital: newCap } } };
+    // the capital is sacked: the taker carries off half the treasury and half the stores, and the
+    // nation that lost its ministries, banks and depots is poorer and weaker from then on
+    const winner = next.nations[to];
+    const loot = Math.max(0, Math.floor((loser.treasury ?? 0) * CAPITAL_LOOT));
+    const theirs: Record<string, number> = { ...(loser.stock ?? {}) };
+    const ours: Record<string, number> = { ...(winner.stock ?? {}) };
+    for (const [r, q] of Object.entries(theirs)) {
+      const take = Math.floor(q * CAPITAL_LOOT);
+      if (take <= 0) continue;
+      theirs[r] = Math.round((q - take) * 10) / 10;
+      ours[r] = Math.round(((ours[r] ?? 0) + take) * 10) / 10;
+    }
+    next = { ...next, nations: { ...next.nations,
+      [to]: { ...winner, treasury: Math.round(((winner.treasury ?? 0) + loot) * 10) / 10, ...(winner.stock || loser.stock ? { stock: ours } : {}) },
+      [from]: { ...loser, capital: newCap, treasury: Math.round(((loser.treasury ?? 0) - loot) * 10) / 10, ...(loser.stock ? { stock: theirs } : {}),
+        military: Math.max(CAPITAL_LOSS_FLOOR, Math.round(loser.military * CAPITAL_LOSS * 100) / 100) },
+    } };
+    if (loot > 0) next = log(next, { kind: 'loot', text: `${s.nations[to].shortName} carries off ${loot} from ${possessive(loser.shortName)} treasury, and half its stores.`, nations: [to, from], important: false });
     const cap = next.provinces[newCap];
     if (cap && !cap.build?.includes('barracks')) next = { ...next, provinces: { ...next.provinces, [newCap]: { ...cap, build: [...(cap.build ?? []), 'barracks'] } } };
     next = log(next, { kind: 'capital', text: `${s.nations[to].shortName} takes ${possessive(loser.shortName)} capital! The government flees.`, nations: [from, to], important: true });
@@ -597,10 +619,7 @@ export function militaryTick(state: GameState, world: World, log: Logger): GameS
     }
     const wasCapital = s.nations[owner]?.capital === province;
     flush();
-    const fallsWhole = wasCapital && !!s.rules.capitalFalls;
-    s = setOwner(s, province, by, fallsWhole ? (st, ev) => (ev.kind === 'capital' ? st : log(st, ev)) : log, world);
-    // optional rule: the nation falls with its capital
-    if (wasCapital && s.rules.capitalFalls && s.nations[owner]?.alive) s = capitalFallen(s, world, owner, by, log);
+    s = setOwner(s, province, by, log, world);
     if (!wasCapital && (isP(by) || isP(owner)))
       s = log(s, { kind: 'capture', text: `${s.nations[by].shortName} captures ${provinceName(world, province)} from ${s.nations[owner].shortName}.`, nations: [by, owner], important: isP(owner) });
   }
@@ -821,14 +840,6 @@ export function supplyFactor(s: GameState, world: World, a: Army): number {
   const short = s.nations[a.owner]?.short;
   if (!short?.length) return 1;
   return short.some((r) => world.resources?.[r]?.units?.includes(a.unitType)) ? SHORTAGE_FACTOR : 1;
-}
-
-/** "Capital falls = nation falls": the whole nation passes to the army that took its capital. */
-function capitalFallen(state: GameState, world: World, n: NationId, by: NationId, log: Logger): GameState {
-  let s = log(state, { kind: 'capitulation', text: `${state.nations[n].name} falls with its capital to ${state.nations[by].name}.`, nations: [n, by], important: true });
-  const quiet: Logger = (st, ev) => (ev.kind === 'annexed' || ev.kind === 'capital' ? st : log(st, ev));
-  for (const p of Object.keys(s.provinces).filter((id) => s.provinces[id].owner === n)) s = setOwner(s, p, by, quiet, world);
-  return s;
 }
 
 /** Adds a new army for a nation at a province (pure). */

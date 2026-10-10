@@ -73,7 +73,6 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
         ),
         h('div', { class: 'mp-rules' },
           h('span', null, SPEED_LABEL[room.speed]), h('span', null, `AI: ${room.difficulty}`), h('span', null, `Economy: ${room.economy}`),
-          room.capitalFalls ? h('span', null, 'Capital falls = nation falls') : null,
           h('span', null, `${room.players.length} / ${room.maxPlayers} players`),
           h('span', null, running ? (room.status === 'paused' ? 'Paused' : 'In progress') : 'Waiting to start')),
         h('ul', { class: 'mp-players' }, ...room.players.map((p) => h('li', null,
@@ -160,18 +159,16 @@ export function showMultiplayer(root: HTMLElement, actions: MultiplayerActions) 
     const speed = sel('Pace', [['1', SPEED_LABEL[1]], ['2', SPEED_LABEL[2]], ['4', SPEED_LABEL[4]]], '1');
     const diff = sel('AI nations', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], 'normal');
     const econ = sel('Economy', [['simple', 'Simple'], ['detailed', 'Detailed']], 'simple');
-    const cap = h('input', { type: 'checkbox' }) as HTMLInputElement;
     return h('div', { class: 'mp-create' },
       h('h3', null, 'New room'),
       h('label', { class: 'mp-field' }, h('span', null, 'Name'), name),
       era.el, vis.el, max.el, speed.el, diff.el, econ.el,
-      h('label', { class: 'mp-field check' }, cap, h('span', null, 'Capital falls = nation falls')),
       h('div', { class: 'mp-actions' },
         h('button', { class: 'btn primary', onclick: () => {
           const settings: RoomSettings = {
             name: name.value.trim() || `${username}'s game`, scenarioId: era.get(), visibility: vis.get() as RoomSettings['visibility'],
             maxPlayers: Number(max.get()), speed: Number(speed.get()) as RoomSettings['speed'], difficulty: diff.get() as RoomSettings['difficulty'],
-            economy: econ.get() as RoomSettings['economy'], capitalFalls: cap.checked,
+            economy: econ.get() as RoomSettings['economy'], capitalFalls: false,
           };
           creating = false;
           client.create(settings);

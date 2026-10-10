@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
 let current: Settings = load();
 
 /** The rules a new game is started with (chosen with the nation). */
-export const newGameRules = () => ({ difficulty: current.difficulty, capitalFalls: current.capitalFalls, economy: current.economy });
+export const newGameRules = () => ({ difficulty: current.difficulty, economy: current.economy });
 const listeners = new Set<(s: Settings, prev: Settings) => void>();
 
 /** Fills gaps and rejects bad values so an old or hand-edited entry can never break the game. */

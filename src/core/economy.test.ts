@@ -268,20 +268,23 @@ describe('population and the capital rule', () => {
     expect(s.nations.POL.civDeaths).toBeGreaterThan(0);
   });
 
-  it('with "capital falls", taking the capital takes the whole nation', () => {
-    let s = act(fresh(), { type: 'chooseNation', nation: 'GER', capitalFalls: true }, 'GER');
-    expect(s.rules.capitalFalls).toBe(true);
+  it('taking a capital loots half the treasury and stores and weakens the nation, which fights on', () => {
+    let s = rich(act(fresh(), { type: 'chooseNation', nation: 'GER' }, 'GER'), 'POL', 100);
     const warsaw = id('Warsaw');
+    const before = { ger: s.nations.GER.treasury!, food: s.nations.GER.stock?.food ?? 0, polFood: s.nations.POL.stock?.food ?? 0, military: s.nations.POL.military, land: budgetOf(s, world, 'POL').land };
     // the siege is over: the next capture step hands Warsaw over
     s = { ...s, provinces: { ...s.provinces, [warsaw]: { ...s.provinces[warsaw], garrison: 0, siege: { by: 'GER', progress: 0.999 } } } };
     s = { ...s, armies: Object.fromEntries(Object.entries(s.armies).filter(([, a]) => a.location !== warsaw)) };
     const army = Object.values(s.armies).find((a) => a.owner === 'GER')!;
     s = { ...s, armies: { ...s.armies, [army.id]: { ...army, location: warsaw, path: [], progress: 0, strength: 30, maxStrength: 30 } } };
     s = tick(s, 1);
-    expect(s.nations.POL.alive).toBe(false);
-    expect(s.events.some((e) => e.kind === 'capitulation' && /falls with its capital/.test(e.text))).toBe(true);
-    // the normal rule only moves the government
-    const plain = setOwner(fresh(), warsaw, 'GER', (x) => x, world);
-    expect(plain.nations.POL.alive).toBe(true);
+    expect(s.provinces[warsaw].owner).toBe('GER');
+    expect(s.nations.POL.alive).toBe(true);
+    expect(s.nations.POL.capital).not.toBe(warsaw);
+    expect(s.nations.GER.treasury).toBe(before.ger + 50);
+    expect(s.nations.POL.treasury).toBe(50);
+    expect(s.nations.GER.stock?.food).toBe(before.food + Math.floor(before.polFood / 2));
+    expect(s.nations.POL.military).toBeLessThan(before.military);
+    expect(budgetOf(s, world, 'POL').land).toBeLessThan(before.land);
   });
 });

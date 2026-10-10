@@ -225,7 +225,7 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
     case 'chooseNation': {
       let s: GameState = {
         ...state, playerNation: action.nation,
-        rules: { ...state.rules, difficulty: action.difficulty ?? 'normal', capitalFalls: !!action.capitalFalls, economy: action.economy ?? 'simple' },
+        rules: { ...state.rules, difficulty: action.difficulty ?? 'normal', economy: action.economy ?? 'simple' },
       };
       if (s.rules.economy === 'detailed') s = initStocks(s, world);
       if (action.disease) s = customizeDisease(s, action.disease);
@@ -244,7 +244,6 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
         rules: {
           ...state.rules,
           difficulty: action.difficulty ?? state.rules.difficulty ?? 'normal',
-          capitalFalls: action.capitalFalls ?? state.rules.capitalFalls,
           economy: action.economy ?? state.rules.economy ?? 'simple',
         },
       };
