@@ -12,6 +12,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.8.3',
+    date: '2026-10-10',
+    title: 'Faster, safer saves, less gold',
+    items: [
+      { title: 'Twice as fast', how: 'Every speed is twice as fast: 1× is now 5 seconds a day (what 2× was), 2× is what 4× was, and 4× is faster still.' },
+      { title: 'Autosave every 45 seconds', how: 'Phones sometimes reload the page by themselves when memory runs low, and the game came back at an old autosave. It now autosaves every 45 seconds of play and whenever you leave the page, so you lose almost nothing. (Settings → Gameplay can still turn autosave off.)' },
+      { title: 'Less gold', how: 'The last update paid too much. Taxes are back down, and conquered land that is not joined to your homeland pays a little over half instead of nearly everything.' },
+    ],
+  },
+  {
     version: '0.8.2',
     date: '2026-10-10',
     title: 'Conquests pay, barracks work',

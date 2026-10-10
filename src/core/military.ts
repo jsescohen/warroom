@@ -105,8 +105,8 @@ export function provinceWeight(world: World, p: ProvinceId): number {
   return pop >= 1_000_000 ? 1 : pop >= 250_000 ? 0.85 : pop >= 50_000 ? 0.7 : pop > 0 ? 0.55 : 0.25;
 }
 const COLONY_WEIGHT = 0.15;
-/** Land taken from another nation, not joined to the homeland by land: it pays and recruits nearly in full. */
-const CONQUEST_WEIGHT = 0.8;
+/** Land taken from another nation, not joined to the homeland by land: it pays and recruits at a little over half. */
+const CONQUEST_WEIGHT = 0.6;
 /** Core provinces from which a nation counts as large (see capitulations). */
 const LARGE_NATION = 25;
 

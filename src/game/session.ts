@@ -5,12 +5,16 @@ import type { GameState } from '../core/types';
 import { getSettings } from '../ui/settings';
 import { AUTOSAVE_ID, getSave, makeSave, putSave } from './saves';
 
+const AUTOSAVE_EVERY_MS = 45_000;
+
 /**
  * The running game's relationship with its saves: which slot it came from, whether there are
  * unsaved changes, periodic autosave, and leaving to the main menu.
  */
 export class GameSession {
   private savedState: GameState;
+  /** The game as it stood at the last autosave (nothing changed since: nothing to write). */
+  private autosaved: GameState | null = null;
   private lastAutosaveDay: number;
   slotId: string | null;
   slotName: string | null = null;
@@ -28,9 +32,12 @@ export class GameSession {
       if (s.diplomacy.read !== prev.diplomacy.read) this.autosaveSoon();
     });
     // phones: switching away from the app (or closing it) saves first
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && getSettings().autosave !== 'off' && this.dirty) void this.autosave();
-    });
+    const saveNow = () => { if (getSettings().autosave !== 'off' && this.dirty) void this.autosave(); };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
+    window.addEventListener('pagehide', saveNow);
+    // and every 45 seconds of play: a phone may throw the page away without warning (low memory),
+    // and it then comes back at the last autosave
+    window.setInterval(() => { if (this.store.state !== this.autosaved) saveNow(); }, AUTOSAVE_EVERY_MS);
   }
 
   private soonTimer = 0;
@@ -66,6 +73,9 @@ export class GameSession {
 
   async autosave(): Promise<void> {
     if (!this.store.state.playerNation || this.store.readOnly || this.online) return;
+    const state = this.store.state;
+    if (state === this.autosaved) return;
+    this.autosaved = state;
     try {
       await putSave(makeSave(this.store.state, this.scenario, { id: AUTOSAVE_ID, name: `Autosave — ${this.scenario.name}`, auto: true }));
     } catch {

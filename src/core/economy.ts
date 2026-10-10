@@ -22,7 +22,7 @@ const RECRUIT_BASE = 8;
 /** Monthly upkeep of a basic full-size army. */
 const UPKEEP_BASE = 1;
 /** Monthly income per army the nation's size and industry support (some is left to spend). */
-const INCOME_PER_ARMY = 1.8;
+const INCOME_PER_ARMY = 1.5;
 /** New troops start at this share of full strength and fill up while they train. */
 export const RECRUIT_STRENGTH = 0.4;
 /** Nations can field this many times their supported army count, no more (manpower). */
@@ -65,7 +65,7 @@ const BIG_CITY_WEIGHT = 0.7;
 /** Every barracks musters a basic unit for free this often, while the nation has manpower to spare. */
 export const MUSTER_DAYS = 30;
 /** Barracks stop mustering when the upkeep would leave less than this share of the taxes free. */
-const MUSTER_RESERVE = 0.25;
+const MUSTER_RESERVE = 0.15;
 /** Strength the mustered troops start at (they fill up at rest). */
 const MUSTER_STRENGTH = 0.6;
 
@@ -500,7 +500,7 @@ export function musterTick(state: GameState, world: World, log: Logger): GameSta
     const n = ps.owner;
     if (!s.nations[n]?.alive || ps.siege || (ps.falloutUntil ?? 0) > s.clock.hours || hostileHere(s, world, n, p)) continue;
     if (armyCount(s, world, n) + inTraining(s, n) >= manpowerCap(s, world, n)) continue;
-    // never into a deficit: a quarter of the taxes stays free for building and buying
+    // never into a deficit: part of the taxes stays free for building and buying
     const b = budgetOf(s, world, n);
     if (b.net - UPKEEP_BASE < b.land * MUSTER_RESERVE) continue;
     s = raiseUnitOfType(s, world, n, p, unit, BASE_STRENGTH * MUSTER_STRENGTH, BASE_STRENGTH);
