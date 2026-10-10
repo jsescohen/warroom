@@ -85,7 +85,8 @@ export function effectiveSize(s: GameState, world: World, n: NationId, owned: Pr
     const ps = s.provinces[p];
     // developed land yields more; land poisoned by a nuclear strike almost nothing
     const dev = (1 + 0.3 * (ps?.level ?? 0)) * ((ps?.falloutUntil ?? 0) > s.clock.hours ? 0.1 : 1);
-    return x + (!home || home.has(p) ? 1 : COLONY_WEIGHT) * provinceWeight(world, p) * (0.4 + 0.6 * popRatio(s, world, p)) * dev;
+    const share = !home || home.has(p) ? 1 : ps?.core && ps.core !== n ? CONQUEST_WEIGHT : COLONY_WEIGHT;
+    return x + share * provinceWeight(world, p) * (0.4 + 0.6 * popRatio(s, world, p)) * dev;
   }, 0);
 }
 
@@ -99,6 +100,8 @@ export function provinceWeight(world: World, p: ProvinceId): number {
   return pop >= 1_000_000 ? 1 : pop >= 250_000 ? 0.85 : pop >= 50_000 ? 0.7 : pop > 0 ? 0.55 : 0.25;
 }
 const COLONY_WEIGHT = 0.15;
+/** Land taken from another nation, not joined to the homeland by land: it pays and recruits nearly in full. */
+const CONQUEST_WEIGHT = 0.8;
 /** Core provinces from which a nation counts as large (see capitulations). */
 const LARGE_NATION = 25;
 
@@ -108,7 +111,9 @@ const LARGE_NATION = 25;
  * which made small nations too strong and large ones too weak).
  */
 export const armyCap = (provinceCount: number, military: number) =>
-  Math.max(1, Math.min(40, Math.round(military * (1 + pow075(provinceCount) * 0.75))));
+  Math.max(1, Math.min(60, Math.round(military * (1 + pow075(provinceCount) * 0.75))));
+/** The same measure without rounding or a ceiling: what the land pays in taxes. */
+export const taxBase = (provinceCount: number, military: number) => Math.max(1, military * (1 + pow075(provinceCount) * 0.75));
 
 /** Target number of fleets: about six for a first-rate naval power, none without a coast. */
 export function fleetCap(s: GameState, world: World, n: NationId): number {
@@ -328,7 +333,7 @@ export function routeProblem(s: GameState, world: World, owner: NationId, unitTy
 export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: (s: GameState, ev: Omit<GameEvent, 'id' | 'at'>) => GameState, world?: World): GameState {
   const from = s.provinces[province].owner;
   if (from === to) return s;
-  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0, takenAt: s.clock.hours, ...(s.provinces[province].pop !== undefined ? { pop: s.provinces[province].pop } : {}), ...(s.provinces[province].build ? { build: s.provinces[province].build } : {}) } };
+  const provinces: Record<ProvinceId, ProvinceState> = { ...s.provinces, [province]: { owner: to, core: s.provinces[province].core, garrison: 0, takenAt: s.clock.hours, ...(s.provinces[province].pop !== undefined ? { pop: s.provinces[province].pop } : {}), ...(s.provinces[province].build ? { build: s.provinces[province].build } : {}), ...(s.provinces[province].level ? { level: s.provinces[province].level } : {}) } };
   let next: GameState = { ...s, provinces };
   const loser = s.nations[from];
   const remaining = Object.keys(provinces).filter((id) => provinces[id].owner === from);
@@ -343,7 +348,13 @@ export function setOwner(s: GameState, province: ProvinceId, to: NationId, log: 
         .filter((w) => w.attackers.length && w.defenders.length),
       treaties: next.treaties.map((t) => ({ ...t, parties: t.parties.filter((n) => n !== from) })).filter((t) => t.parties.length >= 2),
     };
-    next = log(next, { kind: 'annexed', text: `${loser.name} has fallen to ${s.nations[to].name}.`, nations: [from, to], important: true });
+    // the victor takes what is left in the treasury and the storehouses
+    const winner = next.nations[to];
+    const loot = Math.max(0, Math.floor(loser.treasury ?? 0));
+    const stock: Record<string, number> = { ...(winner.stock ?? {}) };
+    for (const [r, q] of Object.entries(loser.stock ?? {})) stock[r] = Math.round(((stock[r] ?? 0) + q) * 10) / 10;
+    next = { ...next, nations: { ...next.nations, [to]: { ...winner, treasury: Math.round(((winner.treasury ?? 0) + loot) * 10) / 10, ...(winner.stock || loser.stock ? { stock } : {}) }, [from]: { ...next.nations[from], treasury: 0, stock: {} } } };
+    next = log(next, { kind: 'annexed', text: `${loser.name} has fallen to ${s.nations[to].name}${loot > 0 ? `, which takes its treasury (${loot}) and its stores` : ''}.`, nations: [from, to], important: true });
   } else if (loser.capital === province) {
     // the government flees well away from the front: the nearest province at a safe distance,
     // or the farthest one it still holds

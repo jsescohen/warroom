@@ -169,8 +169,13 @@ export function estimate(s: GameState, world: World, m: MajorAction): Estimate {
     const p = m.province!;
     const near = new Set([p, ...world.provinces[p].links.map((l) => l.to)]);
     const land = (a: { unitType: string }) => !isFleet(world, a.unitType);
-    const ids = m.armies ?? [(m.action as { army: string }).army];
+    const ordered = m.armies ?? [(m.action as { army: string }).army];
+    // those already on their way there, or already fighting there, attack with them
+    const committed = Object.values(s.armies).filter((a) => a.owner === m.actor && land(a) && !ordered.includes(a.id) &&
+      ((a.location === p && a.progress === 0) || a.path.includes(p))).map((a) => a.id);
+    const ids = [...ordered, ...committed];
     const ourArmies = ids.map((id) => s.armies[id]).filter((a) => a && land(a));
+    if (committed.length) notes.push(`Counting ${committed.length} of your arm${committed.length === 1 ? 'y' : 'ies'} already marching on or fighting at ${world.provinces[p].name}.`);
     const theirArmies = Object.values(s.armies).filter((a) => land(a) && atWar(s, m.actor, a.owner) && near.has(a.location));
     const home = (s.rules.homeDefense ?? 1.2) * (s.nations[m.target]?.capital === p ? 1.25 : 1);
     ours = ourArmies.reduce((x, a) => x + a.strength * (s.nations[a.owner]?.quality ?? 1) * (world.unitTypes[a.unitType]?.attack ?? 3), 0);

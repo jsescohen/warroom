@@ -1,5 +1,5 @@
 import { exp } from './detmath';
-import { armyCap, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
+import { armyCap, taxBase, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
 import { roll } from './world';
 import { basePop, POP_FLOOR, popRatio } from './population';
 import { healthIncome, healthUse, researchCost } from './pandemic';
@@ -22,7 +22,7 @@ const RECRUIT_BASE = 8;
 /** Monthly upkeep of a basic full-size army. */
 const UPKEEP_BASE = 1;
 /** Monthly income per army the nation's size and industry support (some is left to spend). */
-const INCOME_PER_ARMY = 1.35;
+const INCOME_PER_ARMY = 1.8;
 /** New troops start at this share of full strength and fill up while they train. */
 export const RECRUIT_STRENGTH = 0.4;
 /** Nations can field this many times their supported army count, no more (manpower). */
@@ -60,10 +60,12 @@ const HEALTH_MATERIALS: Partial<Record<BuildingId, Record<string, number>>> = {
   hospital: { medicine: 2, gear: 2 },
   lab: { reagents: 3 },
 };
-/** A province whose main city weighs this much is a big city (barracks from the start). */
-const BIG_CITY_WEIGHT = 0.8;
+/** Provinces with a town of this weight or more (50,000 people) have barracks from the start. */
+const BIG_CITY_WEIGHT = 0.7;
 /** Every barracks musters a basic unit for free this often, while the nation has manpower to spare. */
 export const MUSTER_DAYS = 30;
+/** Barracks stop mustering when the upkeep would leave less than this share of the taxes free. */
+const MUSTER_RESERVE = 0.25;
 /** Strength the mustered troops start at (they fill up at rest). */
 const MUSTER_STRENGTH = 0.6;
 
@@ -316,7 +318,8 @@ export interface Budget {
 }
 
 export function budgetOf(s: GameState, world: World, n: NationId): Budget {
-  const full = supportedArmies(s, world, n) * INCOME_PER_ARMY * UPKEEP_BASE * difficultyMult(s, n);
+  // taxes follow the land without the ceiling on armies: every conquest pays
+  const full = taxBase(effectiveSize(s, world, n, provincesOf(s, n)), s.nations[n]?.military ?? 1) * INCOME_PER_ARMY * UPKEEP_BASE * difficultyMult(s, n);
   // in a pandemic, lockdowns and the sick cut the taxes, and research costs a share of them
   const land = full * healthIncome(s, world, n);
   const health = researchCost(s, n, full);
@@ -497,6 +500,9 @@ export function musterTick(state: GameState, world: World, log: Logger): GameSta
     const n = ps.owner;
     if (!s.nations[n]?.alive || ps.siege || (ps.falloutUntil ?? 0) > s.clock.hours || hostileHere(s, world, n, p)) continue;
     if (armyCount(s, world, n) + inTraining(s, n) >= manpowerCap(s, world, n)) continue;
+    // never into a deficit: a quarter of the taxes stays free for building and buying
+    const b = budgetOf(s, world, n);
+    if (b.net - UPKEEP_BASE < b.land * MUSTER_RESERVE) continue;
     s = raiseUnitOfType(s, world, n, p, unit, BASE_STRENGTH * MUSTER_STRENGTH, BASE_STRENGTH);
     raised.set(n, [...(raised.get(n) ?? []), p]);
   }
@@ -533,7 +539,7 @@ export function initEconomy(state: GameState, world: World): GameState {
       };
       add(n.capital, 'barracks');
       for (const p of home.slice(0, Math.floor(cap / 8))) add(p, 'barracks');
-      // every big city of the homeland too
+      // every town and city of the homeland too
       for (const p of home) if (provinceWeight(world, p) >= BIG_CITY_WEIGHT) add(p, 'barracks');
       if (air && n.units.some((u) => isAirUnit(world, u))) {
         add(n.capital, 'airfield');

@@ -87,6 +87,12 @@ const STEEL: D[] = [
   [86.2, 22.8, 1.2], // Jamshedpur
   [-43.5, -19.6, 1.5], // Minas Gerais
   [151.7, -32.9, 1], // Newcastle
+  [8.9, 44.4, 0.8], [12.6, 42.6, 0.8], // Genoa, Terni
+  [28, -26, 1.5], // the Witwatersrand
+  [29.8, -19, 1], // Zimbabwe (Kwekwe)
+  [7.8, 36.9, 0.8], // Annaba
+  [-12.2, 21, 1.5], // Mauritania (Zouérat iron)
+  [-10.5, 7.5, 1], // Liberia (Nimba)
 ];
 const COAL: D[] = [[7.2, 51.5, 1], [-2, 53, 2], [-3.5, 51.6, 1], [3.8, 50.4, 1], [18.8, 50.2, 1], [38.5, 48.2, 1.5], [-77.5, 40.5, 2], [-81.5, 38, 1.5], [87, 54.5, 1.5], [112.5, 37.8, 2], [131, 33.7, 1]];
 const OIL_1914: D[] = [
@@ -135,6 +141,15 @@ const OIL_MODERN: D[] = [
   [125, 46.5, 1.2], // Daqing
   [56, 20, 2], // Oman
   [-72.5, 6, 1.5], // Colombia
+  [29, 10, 1.5], // Sudan (Heglig, Unity)
+  [9, -1, 1], [8.7, 3.7, 0.7], [12, -4.7, 0.8], // Gabon, Equatorial Guinea, Congo
+  [33, 28.5, 1], // Gulf of Suez
+  [16.5, 9, 1.2], // Chad (Doba)
+  [9.5, 32, 1.2], // southern Tunisia
+  [16, 40.4, 0.7], // Basilicata
+  [-2.5, 4.9, 0.8], // Ghana offshore
+  [13.5, -9, 1], // Angola (Kwanza)
+  [44.5, 15.5, 1], // Yemen
 ];
 const RUBBER: D[] = [[102, 3.8, 2.5], [101, 1, 2], [110, -7, 2], [80.6, 7.2, 1.2], [106.5, 11.5, 1.5], [-10, 6.5, 1], [23, 0.5, 2.5], [-60, -3.5, 3]];
 const FOOD: D[] = [
@@ -150,6 +165,17 @@ const FOOD: D[] = [
   [26, 44.4, 1.2], // Wallachia
   [116, 34, 3], // North China plain
   [-54, -14, 3], // Mato Grosso
+  [10.5, 45, 1.3], [15.5, 41.3, 1], // Po valley, Apulia
+  [-4.5, 37.8, 1.5], // Andalusia
+  [-7, 33, 1.5], [3, 36.3, 1.2], [10, 36.3, 1], // Morocco, the Mitidja, Tunisia
+  [33, 14.5, 1.5], // Gezira
+  [39, 9, 2], [36.5, -0.5, 1.5], [32.5, 1, 1.2], // Ethiopian highlands, Kenya, Uganda
+  [8, 11.5, 2], [-5, 6.5, 1.5], [-1.5, 6.5, 1], // northern Nigeria, Ivory Coast, Ghana
+  [-5, 14, 1.5], [-15.5, 14.5, 1], // inner Niger delta, Senegal
+  [35, -6, 1.5], [31, -17.5, 1.2], [27, -28.5, 1.5], [34, -14, 1], // Tanzania, Zimbabwe, the Highveld, Malawi
+  [33, 38.5, 2], // Anatolia
+  [100.5, 15.5, 1.5], [105.7, 10, 1], [110, -7.3, 1.5], [90, 24, 1.2], // Chao Phraya, Mekong, Java, Bengal
+  [-101, 20.5, 1.5], [19.5, 52.5, 1.5], [121, 15.5, 1], // the Bajío, Poland, Luzon
 ];
 const URANIUM_1939: D[] = [[26.6, -11.1, 1], [-117.7, 66.1, 1.5], [12.9, 50.4, 0.6], [-108.5, 38, 1.5]];
 const URANIUM_MODERN: D[] = [
@@ -163,6 +189,7 @@ const URANIUM_MODERN: D[] = [
   [33.5, 48.3, 0.8], // Zhovti Vody
   [-108, 43, 2], // Wyoming
   [-79, 46.5, 2], // Elliot Lake
+  [26.7, -27, 1], // South Africa
 ];
 const ELECTRONICS: D[] = [
   [121, 24.5, 1.3], // Taiwan
@@ -175,8 +202,15 @@ const ELECTRONICS: D[] = [
   [100.3, 5.4, 0.8], [103.8, 1.35, 0.5], // Penang, Singapore
   [77.6, 13, 1], // Bangalore
   [-6.3, 53.3, 0.7], // Dublin
+  [9.2, 45.5, 0.7], [11.6, 48.1, 0.7], [2.3, 48.8, 0.6], // Milan, Munich, Paris
+  [-99.1, 19.4, 0.7], [-46.6, -23.5, 0.8], // Mexico City, São Paulo
 ];
-const RARE: D[] = [[109.9, 41.8, 1.5], [115, 25.5, 2], [97.5, 26, 1.5], [-115.5, 35.5, 1], [122.6, -28.9, 1], [33, 67.6, 1], [-46.9, -19.6, 1], [-46, 61, 1], [76.4, 9, 0.8]];
+const RARE: D[] = [[109.9, 41.8, 1.5], [115, 25.5, 2], [97.5, 26, 1.5], [-115.5, 35.5, 1], [122.6, -28.9, 1], [33, 67.6, 1], [-46.9, -19.6, 1], [-46, 61, 1], [76.4, 9, 0.8],
+  [27, -11, 1.5], [28, -12.8, 1], // Katanga cobalt, the Copperbelt
+  [27.5, -25, 1], [47, -20.5, 1.2], [39, -16, 1.2], [33, -8, 1], // Bushveld, Madagascar, Mozambique, Tanzania
+  [-6.9, 32.9, 1], [-13, 10.5, 1], [29.5, -3, 0.8], [-1.8, 6.2, 0.6], // Moroccan phosphates, Guinea bauxite, Burundi and Rwanda, Ghana
+  [-69, -23, 1.5], [-67, -20.5, 1.2], // Atacama and Bolivian lithium
+];
 
 // ---- the United States (a map of the states) ------------------------------------------------------
 const US_OIL: D[] = [[-102.5, 31.8, 2], [-97.5, 35.5, 1.5], [-95, 29.5, 1.5], [-103, 48, 1.5], [-119, 35.3, 1.2], [-149, 70, 3], [-91.5, 30.5, 1.5], [-106, 42.5, 1.5]];
@@ -290,7 +324,7 @@ export const ERA_UNIT_COSTS: Record<EraId, Record<string, Record<string, number>
   renaissance: { pikemen: { grain: 1 }, arquebusiers: { saltpetre: 1, iron: 1 }, knights: { horses: 2, iron: 1 }, cannon: { iron: 3, saltpetre: 2 } },
   ww1: { infantry: { food: 1 }, cavalry: { horses: 2, food: 1 }, artillery: { steel: 3, coal: 1 } },
   ww2: { infantry: { food: 1 }, armor: { steel: 3, oil: 2, rubber: 1 }, artillery: { steel: 3 }, air: { steel: 2, oil: 2, rubber: 1 } },
-  modern: { infantry: { food: 1, steel: 1 }, armor: { steel: 3, oil: 2 }, air: { steel: 2, oil: 2, electronics: 2 }, drones: { electronics: 2, rare: 1 } },
+  modern: { infantry: { food: 1 }, armor: { steel: 3, oil: 2 }, air: { steel: 2, oil: 2, electronics: 2 }, drones: { electronics: 2, rare: 1 } },
   usa: { infantry: { food: 1 }, armor: { steel: 3, oil: 2 }, air: { steel: 2, oil: 2, electronics: 2 }, drones: { electronics: 2 } },
   pangea: { spearmen: { grain: 1 }, swordsmen: { iron: 2 }, archers: { grain: 1 }, cavalry: { horses: 2 } },
   pandemic: { guard: { food: 1, gear: 1 } },

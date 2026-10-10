@@ -337,7 +337,11 @@ export class SidePanel {
     const key = `prov|${id}|${!!player}|${canDeclare}|${owner.id}|${!!s.disease}|${econ.map((e) => `${e.label}:${e.err ?? ''}`).join(',')}|${strikes.map((b) => b.textContent + (b as HTMLButtonElement).disabled).join(',')}`;
     this.setActions(key, [
       ...(econ.length ? [h('div', { class: 'side-subhead' }, 'Recruit, build and develop')] : []),
-      ...econ.map((e) => h('button', { class: 'btn econ-btn', disabled: !!e.err, title: e.err ?? e.title, onclick: e.run }, e.label)),
+      // what cannot be done says why underneath (a phone has no hover to show it)
+      ...econ.flatMap((e) => [
+        h('button', { class: 'btn econ-btn', disabled: !!e.err, title: e.err ?? e.title, onclick: e.run }, e.label),
+        e.err ? h('div', { class: 'econ-why' }, e.err) : null,
+      ]),
       ...strikes,
       !player ? h('button', { class: 'btn primary', title: 'Play as this nation for the rest of the game', onclick: () => this.act.chooseNation(owner.id) }, `Lead ${owner.shortName}`) : null,
       player && player !== owner.id ? h('button', { class: 'btn', title: 'Open a conversation with their leader: talk, propose deals (D)', onclick: () => this.act.diplomacy(owner.id) }, `Talk to ${owner.shortName}`) : null,

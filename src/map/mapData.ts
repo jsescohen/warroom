@@ -174,7 +174,7 @@ function seaShoreTest(land: number[][][]): (coords: number[]) => boolean {
 
 /** Static simulation context for a scenario on this map. */
 export const buildWorldFromMap = (map: MapData, unitTypes: UnitTypeDef[], era?: EraId): World =>
-  buildWorld(map.provinces.map((p) => ({ id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop, lonlat: p.lonlat, neighbors: p.neighbors })), unitTypes, 0.5,
+  buildWorld(map.provinces.map((p) => ({ id: p.id, name: p.name, label: p.label, area: p.area, coastal: p.coastal, pop: p.pop, lonlat: p.lonlat, group: p.polity === 'Tribes' ? undefined : p.subject || p.polity, neighbors: p.neighbors })), unitTypes, 0.5,
     era ? resourcesOf(era) : [], { unitCosts: era ? unitCostsOf(era) : {}, developCost: era ? DEVELOP_COST[era] ?? {} : {}, weapons: era ? weaponsOf(era) : null });
 
 /** Renames provinces to their period names (Paris → Lutetia). Returns the same map, mutated. */

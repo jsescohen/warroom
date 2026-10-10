@@ -52,6 +52,8 @@ export interface WorldProvinceInput {
   pop?: number;
   /** [lon, lat], used to place resources. */
   lonlat?: [number, number];
+  /** The map's country for the province: every country gets at least one resource. */
+  group?: string;
   neighbors: ProvinceId[];
 }
 
@@ -69,12 +71,15 @@ export function roll(id: string, key: string): number {
   return (h >>> 0) / 4294967296;
 }
 
+const FARMLAND_POP = 50_000;
+const FARMLAND_SHARE = 0.35;
+
 /**
  * Puts the era's resources on the map: every province whose centre lies within a deposit's radius
  * holds it; a deposit no province centre reaches goes to the nearest province. One resource per
  * province (the first listed wins).
  */
-export function placeResources(input: { id: ProvinceId; lonlat?: [number, number] }[], resources: ResourceDef[]): Map<ProvinceId, string> {
+export function placeResources(input: { id: ProvinceId; lonlat?: [number, number]; pop?: number; group?: string }[], resources: ResourceDef[]): Map<ProvinceId, string> {
   const out = new Map<ProvinceId, string>();
   const located = input.filter((p) => p.lonlat);
   const d = (p: { lonlat?: [number, number] }, lon: number, lat: number) => {
@@ -88,6 +93,22 @@ export function placeResources(input: { id: ProvinceId; lonlat?: [number, number
       const hits = inside.length ? inside : located.filter((p) => d(p, lon, lat) <= radius * 2.5).sort((a, b) => d(a, lon, lat) - d(b, lon, lat)).slice(0, 1);
       for (const p of hits) if (!out.has(p.id)) out.set(p.id, r.id);
     }
+  }
+  // farmland: people everywhere grow food, so about a third of the settled provinces without a
+  // deposit hold the era's staple (no country is left with nothing at all)
+  const staple = resources.find((r) => r.id === 'food' || r.id === 'grain');
+  if (staple) for (const p of input) if (!out.has(p.id) && (p.pop ?? 0) >= FARMLAND_POP && roll(p.id, 'farmland') < FARMLAND_SHARE) out.set(p.id, staple.id);
+  // and every country (by the map's own countries) has at least farmland around its biggest city
+  if (staple) {
+    const groups = new Map<string, { any: boolean; best: { id: ProvinceId; pop: number } | null }>();
+    for (const p of input) {
+      if (!p.group) continue;
+      let g = groups.get(p.group);
+      if (!g) groups.set(p.group, (g = { any: false, best: null }));
+      if (out.has(p.id)) g.any = true;
+      else if (!g.best || (p.pop ?? 0) > g.best.pop || ((p.pop ?? 0) === g.best.pop && p.id < g.best.id)) g.best = { id: p.id, pop: p.pop ?? 0 };
+    }
+    for (const g of groups.values()) if (!g.any && g.best) out.set(g.best.id, staple.id);
   }
   return out;
 }

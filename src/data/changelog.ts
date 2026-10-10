@@ -12,6 +12,19 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.8.2',
+    date: '2026-10-10',
+    title: 'Conquests pay, barracks work',
+    items: [
+      { title: 'Conquests pay', how: 'Land you conquer now pays taxes and counts for manpower nearly in full (it used to count as a far-off colony), keeps its development, and there is no ceiling on taxes any more. When a nation falls to you, you take its treasury and its stores of resources.' },
+      { title: 'No more losing money', how: 'Taxes are a third higher, and barracks stop mustering free troops before the upkeep eats your income: a quarter of your taxes always stays free.' },
+      { title: 'Barracks really make troops', how: 'Barracks muster a free basic unit every month up to your manpower limit. Towns as well as cities start with barracks, and barracks you capture muster troops for you.' },
+      { title: 'Why can’t I recruit?', how: 'A recruit or build button you cannot use now says why right under it (on phones too): no manpower left, a missing material, or not enough money. Modern basic infantry needs only food now, not steel.' },
+      { title: 'Resources everywhere', how: 'Many new deposits: oil, iron, rare metals and farmland across Africa, Italy, Spain, Turkey and south-east Asia. Farmland around many towns, and every country has at least one resource.' },
+      { title: 'Odds count troops on the way', how: 'When you send another army at a province, the odds include your armies already marching on it or fighting there.' },
+    ],
+  },
+  {
     version: '0.8.1',
     date: '2026-10-09',
     title: 'Fixes from your feedback',

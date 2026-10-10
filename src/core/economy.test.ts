@@ -128,6 +128,32 @@ describe('economy', () => {
     expect(s.nations.SWE.treasury).toBeCloseTo(before + net, 0);
   });
 
+  it('conquering a whole country pays: its land is taxed, its treasury and stores are taken', () => {
+    let s = rich(act(fresh(), { type: 'chooseNation', nation: 'GER' }, 'GER'), 'ITA', 200);
+    const before = budgetOf(s, world, 'GER').land;
+    const money = s.nations.GER.treasury!;
+    const food = s.nations.GER.stock?.food ?? 0;
+    const theirs = s.nations.ITA.stock?.food ?? 0;
+    for (const p of Object.keys(s.provinces).filter((id) => s.provinces[id].owner === 'ITA')) s = act(s, { type: 'transferProvince', province: p, to: 'GER' }, 'system');
+    expect(s.nations.ITA.alive).toBe(false);
+    expect(budgetOf(s, world, 'GER').land).toBeGreaterThan(before * 1.3);
+    expect(s.nations.GER.treasury).toBe(money + 200);
+    expect(s.nations.GER.stock?.food).toBe(food + theirs);
+  });
+
+  it('barracks taken from another country muster troops for their new owner', () => {
+    let s = act(fresh(), { type: 'chooseNation', nation: 'GER' }, 'GER');
+    const rome = s.nations.ITA.capital!;
+    expect(s.provinces[rome].build).toContain('barracks');
+    s = act(s, { type: 'transferProvince', province: rome, to: 'GER' }, 'system');
+    expect(s.provinces[rome].build).toContain('barracks');
+    // losses leave room under the manpower limit
+    const armies = Object.fromEntries(Object.entries(s.armies).filter(([, a]) => a.owner !== 'GER'));
+    s = tick({ ...s, armies }, 4 * 31);
+    expect(Object.values(s.armies).some((a) => a.owner === 'GER')).toBe(true);
+    expect(s.events.some((e) => e.kind === 'mobilize' && /muster/.test(e.text))).toBe(true);
+  });
+
   it('barracks muster free troops each month, up to the manpower limit', () => {
     let s = act(fresh(), { type: 'chooseNation', nation: 'FRA' }, 'FRA');
     const start = armyCount(s, world, 'FRA');
@@ -219,7 +245,8 @@ describe('weapons', () => {
 
 describe('detailed economy', () => {
   it('stockpiles run out and units without supplies fight weaker', () => {
-    let s = act(fresh(), { type: 'chooseNation', nation: 'FRA', economy: 'detailed' }, 'FRA');
+    // the player's own nation (an AI nation would trade or buy its way out)
+    let s = act(fresh(), { type: 'chooseNation', nation: 'GER', economy: 'detailed' }, 'GER');
     expect(s.rules.economy).toBe('detailed');
     expect(s.nations.GER.stock).toBeDefined();
     s = { ...s, nations: { ...s.nations, GER: { ...s.nations.GER, stock: { oil: 0 } } } };
