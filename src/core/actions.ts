@@ -5,7 +5,7 @@ import { simulateTick } from './sim';
 import { applyArm, applyLaunch, armError, launchError, type WeaponKind } from './weapons';
 import { aidError, applyAid, applyHealth, applyQuarantine, applyShareCure, customizeDisease, healthError, quarantineError, SEVERITIES, shareCureError } from './pandemic';
 import { formatShortDate } from './time';
-import { applyBuild, applyDevelop, applyMarket, applyRecruit, buildError, developError, initStocks, marketError, recruitError } from './economy';
+import { applyMinistry, ministryError, applyBuild, applyDevelop, applyMarket, applyRecruit, buildError, developError, initStocks, marketError, recruitError } from './economy';
 import { DIFFICULTIES, lastRead, readKey, relationKey, type Severity, type BuildingId, type Difficulty, type EconomyMode, type ArmyId, type ChatLine, type GameState, type NationId, type ProposalTerms, type ProvinceId } from './types';
 import { declareWar, leaveTreaty, sideOf } from './war';
 import type { World } from './world';
@@ -29,6 +29,8 @@ export type Action =
   | { type: 'develop'; province: ProvinceId }
   /** World market: buy (amount > 0) or sell (amount < 0) a resource. */
   | { type: 'market'; resource: string; amount: number }
+  /** The war ministry: set it up (once, for a fee), switch it on or off, set the money it keeps. */
+  | { type: 'ministry'; on: boolean; reserve?: number }
   /** Build a missile or nuclear weapon into the arsenal. */
   | { type: 'arm'; weapon: WeaponKind }
   /** Fire one at a province. */
@@ -123,6 +125,8 @@ export function validate(state: GameState, { action, actor }: Command, world: Wo
       return actor === 'system' ? 'Only a nation can develop land' : developError(state, world, actor, action.province);
     case 'market':
       return actor === 'system' ? 'Only a nation can trade' : marketError(state, world, actor, action.resource, action.amount);
+    case 'ministry':
+      return actor === 'system' ? 'Only a nation can do that' : ministryError(state, actor, action);
     case 'arm':
       return actor === 'system' || (action.weapon !== 'missile' && action.weapon !== 'nuke') ? 'Not allowed' : armError(state, world, actor, action.weapon);
     case 'launch':
@@ -264,6 +268,9 @@ export function reduce(state: GameState, cmd: Command, world: World): GameState 
 
     case 'market':
       return applyMarket(state, world, actor, action.resource, action.amount);
+
+    case 'ministry':
+      return applyMinistry(state, actor, action);
 
     case 'arm':
       return applyArm(state, world, actor, action.weapon);

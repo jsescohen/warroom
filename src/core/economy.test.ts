@@ -141,6 +141,26 @@ describe('economy', () => {
     expect(s.nations.GER.stock?.food).toBe(food + theirs);
   });
 
+  it('a large nation can set up a war ministry that recruits and builds by itself', () => {
+    let s = rich(act(fresh(), { type: 'chooseNation', nation: 'SOV' }, 'SOV'), 'SOV', 1000);
+    expect(validate(rich(s, 'SWE', 1000), { action: { type: 'ministry', on: true }, actor: 'SWE' }, world)).toMatch(/provinces/);
+    expect(validate(rich(s, 'SOV', 10), { action: { type: 'ministry', on: true }, actor: 'SOV' }, world)).toMatch(/Costs/);
+    s = act(s, { type: 'ministry', on: true, reserve: 200 }, 'SOV');
+    expect(s.nations.SOV.treasury).toBe(700);
+    expect(s.nations.SOV.ministry).toEqual({ on: true, reserve: 200 });
+    // room under the manpower limit: it buys troops (paid for), and keeps its reserve
+    const armies = Object.fromEntries(Object.entries(s.armies).filter(([, a]) => a.owner !== 'SOV'));
+    s = tick({ ...s, armies }, 4 * 8);
+    expect(inTraining(s, 'SOV') + armyCount(s, world, 'SOV')).toBeGreaterThan(0);
+    expect(s.nations.SOV.treasury).toBeLessThan(700);
+    expect(s.nations.SOV.treasury).toBeGreaterThanOrEqual(200);
+    expect(s.events.some((e) => e.kind === 'ministry')).toBe(true);
+    // switched off: it leaves the treasury alone
+    s = act(s, { type: 'ministry', on: false }, 'SOV');
+    expect(s.nations.SOV.treasury).toBeGreaterThanOrEqual(200);
+    expect(s.nations.SOV.ministry?.on).toBe(false);
+  });
+
   it('barracks taken from another country muster troops for their new owner', () => {
     let s = act(fresh(), { type: 'chooseNation', nation: 'GER' }, 'GER');
     const rome = s.nations.ITA.capital!;

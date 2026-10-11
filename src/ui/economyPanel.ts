@@ -1,10 +1,11 @@
-import { armyCount, budgetOf, importsOf, manpowerCap, marketError, marketPrice, marketQuote, producedBy, SELL_SHARE, STOCK_CAP, tradeRoutes, usedBy } from '../core/economy';
+import { armyCount, budgetOf, importsOf, manpowerCap, marketError, marketPrice, marketQuote, ministryError, MINISTRY_FEE, MINISTRY_PROVINCES, MINISTRY_RESERVES, producedBy, SELL_SHARE, STOCK_CAP, tradeRoutes, usedBy } from '../core/economy';
+import { provincesOf } from '../core/queries';
 import { basePop, formatPop, nationPop } from '../core/population';
 import type { GameStore } from '../core/store';
 import { formatShortDate } from '../core/time';
 import { armError, MAX_ARSENAL, weaponAvailable, weaponDef } from '../core/weapons';
 import { fill, h, swatch } from './dom';
-import { openPanel } from './menus/shell';
+import { openPanel, segmented, toggle } from './menus/shell';
 import { billText } from './sidePanel';
 
 /**
@@ -75,6 +76,28 @@ export function openEconomy(store: GameStore, hooks: { focus(province: string): 
       );
     }).filter(Boolean);
 
+    // ---- the war ministry
+    const ministry = (): (HTMLElement | null)[] => {
+      if (s.disease) return [];
+      const mi = n.ministry;
+      const held = provincesOf(s, me).length;
+      if (!mi) {
+        const err = ministryError(s, me, { on: true });
+        return [h('h3', null, 'War ministry'),
+          h('p', { class: 'setting-hint' }, `A large nation can set up a war ministry: every week it buys troops and builds barracks for you, at the usual prices, and never spends below a reserve you choose. It needs ${MINISTRY_PROVINCES} provinces (you hold ${held}) and costs ${MINISTRY_FEE} once.`),
+          h('div', { class: 'aid-row' }, h('button', { class: 'btn primary', disabled: !!err, title: err ?? 'Set it up and switch it on', onclick: () => act({ type: 'ministry', on: true }) }, `Set up the war ministry · ${MINISTRY_FEE}`)),
+          err ? h('div', { class: 'econ-why' }, err) : null];
+      }
+      return [h('h3', null, 'War ministry'),
+        h('div', { class: 'picker-difficulty' }, h('span', null, 'Buy troops and build barracks by itself'),
+          toggle(mi.on, (v) => act({ type: 'ministry', on: v }), 'War ministry')),
+        h('div', { class: 'picker-difficulty' }, h('span', null, 'Never spend below'),
+          segmented(MINISTRY_RESERVES.includes(mi.reserve) ? mi.reserve : MINISTRY_RESERVES[1], MINISTRY_RESERVES.map((v) => [v, String(v)] as [number, string]), (v) => act({ type: 'ministry', on: mi.on, reserve: v }))),
+        h('p', { class: 'setting-hint' }, mi.on
+          ? `Working: once a week it buys up to three units (your own mix, nearest the fighting) and starts one barracks, while you have manpower (${armyCount(s, world, me)} of ${manpowerCap(s, world, me)} armies), the upkeep fits your income and the treasury stays above ${mi.reserve}.`
+          : 'Switched off: you recruit and build yourself.')];
+    };
+
     const routes = tradeRoutes(s, me).map((t) => {
       const other = t.parties.find((p) => p !== me)!;
       const first = t.parties[0] === me;
@@ -113,6 +136,8 @@ export function openEconomy(store: GameStore, hooks: { focus(province: string): 
       weapons.length ? h('h3', null, 'Weapons') : null,
       weapons.length ? h('table', { class: 'data-table' }, h('thead', null, h('tr', null, h('th', null, 'Weapon'), h('th', { class: 'num' }, 'Arsenal'), h('th', null, 'Cost'), h('th', null, ''))), h('tbody', null, ...weapons)) : null,
       weapons.length ? h('p', { class: 'setting-hint' }, 'Launch them from an enemy province’s panel. Air defence (a building) shoots some down and blunts air strikes on its province and the land around it.') : null,
+
+      ...ministry(),
 
       h('h3', null, 'Trade agreements'),
       routes.length ? h('ul', { class: 'forces' }, ...routes) : h('p', { class: 'empty' }, 'No trade agreements. Propose one in Diplomacy: each carries 3 a month.'),

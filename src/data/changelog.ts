@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '0.8.4',
+    date: '2026-10-11',
+    title: 'The war ministry',
+    items: [
+      { title: 'Automatic recruiting for big empires', how: 'Hold 40 provinces and open the Treasury (T): set up a war ministry for 300, once. Every week it buys up to three units and starts a barracks for you, at the usual prices. Choose the money it must never spend below (50, 200 or 500), and switch it on or off whenever you like. It stops at your manpower limit and never runs you into a deficit.' },
+    ],
+  },
+  {
     version: '0.8.3',
     date: '2026-10-10',
     title: 'Faster, safer saves, less gold',

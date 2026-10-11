@@ -48,6 +48,8 @@ export interface Nation {
   arsenal?: { missile?: number; nuke?: number };
   /** Clock hour the last nuclear weapon was built (they take a while). */
   nukeBuiltAt?: number;
+  /** The war ministry (bought once by a large nation): it builds barracks and buys troops by itself. */
+  ministry?: { on: boolean; /** money it never spends below */ reserve: number };
   /** Pandemic era: the nation's measures against the disease and its race for a cure. */
   health?: HealthState;
 }

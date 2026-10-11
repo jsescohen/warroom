@@ -1,4 +1,4 @@
-import { exp } from './detmath';
+import { dist, exp } from './detmath';
 import { armyCap, taxBase, BASE_STRENGTH, effectiveSize, homelandOf, isFleet, provinceWeight, raiseUnitOfType } from './military';
 import { roll } from './world';
 import { basePop, POP_FLOOR, popRatio } from './population';
@@ -510,6 +510,99 @@ export function musterTick(state: GameState, world: World, log: Logger): GameSta
     if (!isHuman(s, n)) continue;
     const where = ps.map((p) => world.provinces[p]?.name ?? p).join(', ');
     s = log(s, { kind: 'mobilize', text: `New ${world.unitTypes[unit]?.name ?? 'troops'} muster at the barracks of ${where}.`, nations: [n] });
+  }
+  return s;
+}
+
+// ---- the war ministry: automatic barracks and recruiting -----------------------------------------
+
+/** What it costs to set up, once. */
+export const MINISTRY_FEE = 300;
+/** Provinces a nation must hold to set one up. */
+export const MINISTRY_PROVINCES = 40;
+export const MINISTRY_RESERVES = [50, 200, 500];
+/** Units it buys and barracks it starts each week, at most. */
+const MINISTRY_UNITS = 3;
+
+/** Why a nation cannot give this order to its war ministry (setting it up, switching it, its reserve), or null. */
+export function ministryError(s: GameState, n: NationId, o: { on: boolean; reserve?: number }): string | null {
+  const nation = s.nations[n];
+  if (!nation?.alive) return 'Unknown nation';
+  if (s.disease) return 'There are no armies to raise in a pandemic';
+  if (typeof o.on !== 'boolean') return 'On or off?';
+  if (o.reserve !== undefined && !(Number.isFinite(o.reserve) && o.reserve >= 0 && o.reserve <= 5000)) return 'Pick a reserve';
+  if (nation.ministry) return null;
+  const held = provincesOf(s, n).length;
+  if (held < MINISTRY_PROVINCES) return `Needs ${MINISTRY_PROVINCES} provinces: you hold ${held}`;
+  if ((nation.treasury ?? 0) < MINISTRY_FEE) return `Costs ${MINISTRY_FEE} to set up: the treasury holds ${Math.floor(nation.treasury ?? 0)}`;
+  return null;
+}
+
+export function applyMinistry(s: GameState, n: NationId, o: { on: boolean; reserve?: number }): GameState {
+  const nation = s.nations[n];
+  const first = !nation.ministry;
+  const ministry = { on: o.on, reserve: Math.round(o.reserve ?? nation.ministry?.reserve ?? MINISTRY_RESERVES[1]) };
+  return { ...s, nations: { ...s.nations, [n]: { ...nation, ministry, ...(first ? { treasury: Math.round(((nation.treasury ?? 0) - MINISTRY_FEE) * 10) / 10 } : {}) } } };
+}
+
+/**
+ * Once a week a working ministry spends what the treasury holds above its reserve: troops first
+ * (the nation's own mix of units, nearest the fighting, buying missing materials on the market),
+ * up to the manpower limit and never into a deficit; then barracks in the biggest towns without.
+ */
+export function ministryTick(state: GameState, world: World, log: Logger): GameState {
+  if (state.disease || state.clock.hours % 24 !== 0) return state;
+  const day = state.clock.hours / 24;
+  let s = state;
+  for (const n of Object.keys(s.nations).sort()) {
+    const m = s.nations[n].ministry;
+    if (!m?.on || !s.nations[n].alive || (day + Math.floor(roll(n, 'ministry') * 7)) % 7 !== 0) continue;
+    const spare = () => (s.nations[n].treasury ?? 0) - m.reserve;
+    const owned = provincesOf(s, n);
+    const enemies = new Set(Object.keys(s.nations).filter((e) => s.nations[e].alive && atWar(s, n, e)));
+    const front = owned.filter((p) => world.provinces[p].links.some((l) => enemies.has(s.provinces[l.to]?.owner)));
+    const cap = s.nations[n].capital;
+    const anchors = front.length ? front : cap ? [cap] : [];
+    const far = (p: ProvinceId) => Math.min(...anchors.map((f) => dist(world.provinces[p].label[0] - world.provinces[f].label[0], world.provinces[p].label[1] - world.provinces[f].label[1])), 1e9);
+    const done: string[] = [];
+    // troops
+    for (let k = 0; k < MINISTRY_UNITS; k++) {
+      if (armyCount(s, world, n) + inTraining(s, n) >= manpowerCap(s, world, n)) break;
+      const nation = s.nations[n];
+      const wanted = nation.units[((s.armyCounters[n] ?? 0) + inTraining(s, n)) % nation.units.length];
+      let bought = false;
+      for (const unit of [...new Set([wanted, basicUnit(world)])]) {
+        if (!world.unitTypes[unit]) continue;
+        const need: BuildingId = isAirUnit(world, unit) ? 'airfield' : 'barracks';
+        const sites = owned.filter((p) => s.provinces[p].build?.includes(need)).sort((x, y) => far(x) - far(y) || (x < y ? -1 : 1));
+        if (!sites.length) continue;
+        const cost = recruitCost(s, world, n, unit, undefined, sites[0]);
+        if (spare() < cost) continue;
+        // its upkeep must fit the budget
+        if (budgetOf(s, world, n).net - UPKEEP_BASE * unitFactor(world, unit) < 0) continue;
+        // materials it lacks: from the market, if the money above the reserve allows
+        for (const [r, q] of Object.entries(materialsOf(world, unit))) {
+          const lack = Math.ceil(q - (s.nations[n].stock?.[r] ?? 0));
+          if (lack > 0 && lack <= MAX_DEAL && spare() - cost >= marketQuote(s, world, r, lack) && !marketError(s, world, n, r, lack)) s = applyMarket(s, world, n, r, lack);
+        }
+        const site = sites.find((p) => !recruitError(s, world, n, p, unit));
+        if (!site) continue;
+        s = applyRecruit(s, world, n, site, unit);
+        done.push(world.unitTypes[unit].name);
+        bought = true;
+        break;
+      }
+      if (!bought) break;
+    }
+    // barracks: the biggest town without, one a week
+    const town = owned.filter((p) => !s.provinces[p].build?.includes('barracks') && provinceWeight(world, p) >= BIG_CITY_WEIGHT)
+      .sort((x, y) => world.provinces[y].pop - world.provinces[x].pop || (x < y ? -1 : 1))
+      .find((p) => !buildError(s, world, n, p, 'barracks'));
+    if (town && spare() >= BUILDINGS.barracks.cost) {
+      s = applyBuild(s, world, n, town, 'barracks');
+      done.push(`barracks at ${world.provinces[town].name}`);
+    }
+    if (done.length && isHuman(s, n)) s = log(s, { kind: 'ministry', text: `War ministry: ${done.join(', ')}.`, nations: [n] });
   }
   return s;
 }
